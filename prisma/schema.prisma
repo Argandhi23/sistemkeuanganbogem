@@ -1,0 +1,124 @@
+// schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TransactionType {
+  PEMASUKAN
+  PENGELUARAN
+}
+
+enum OrderStatus {
+  PENDING
+  DIPROSES
+  SELESAI
+  DIBATALKAN
+}
+
+enum AccountCategory {
+  PENDAPATAN
+  BEBAN_OPERASIONAL
+  BEBAN_NON_OPERASIONAL
+  ASET
+  KEWAJIBAN
+  MODAL
+}
+
+model User {
+  id           String          @id @default(cuid())
+  name         String
+  email        String          @unique
+  password     String
+  role         Role            @default(USER)
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  transactions Transaction[]
+  orders       CateringOrder[]
+  activityLogs ActivityLog[]
+}
+
+model Account {
+  id           String          @id @default(cuid())
+  code         String          @unique // e.g. "4001", "5001"
+  name         String                  // e.g. "Penjualan Catering", "Bahan Baku"
+  category     AccountCategory
+  isActive     Boolean         @default(true)
+  transactions Transaction[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+model Transaction {
+  id            String          @id @default(cuid())
+  type          TransactionType
+  category      String          // Kategori ramah awam
+  accountId     String?
+  account       Account?        @relation(fields: [accountId], references: [id])
+  description   String
+  amount        Decimal         @db.Decimal(14, 2)
+  date          DateTime
+  createdById   String
+  createdBy     User            @relation(fields: [createdById], references: [id])
+  syncedToSheet Boolean         @default(false)
+  sheetRowId    Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([date])
+  @@index([type])
+  @@index([accountId])
+  @@index([syncedToSheet])
+  @@index([type, date])
+}
+
+model CateringOrder {
+  id            String      @id @default(cuid())
+  customerName  String
+  customerPhone String?
+  eventDate     DateTime
+  menuDetail    String
+  portion       Int
+  totalPrice    Decimal     @db.Decimal(14, 2)
+  status        OrderStatus @default(PENDING)
+  notes         String?
+  createdById   String
+  createdBy     User        @relation(fields: [createdById], references: [id])
+  syncedToSheet Boolean     @default(false)
+  sheetRowId    Int?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([status])
+  @@index([eventDate])
+  @@index([syncedToSheet])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  action     String
+  targetType String
+  targetId   String
+  detail     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}
