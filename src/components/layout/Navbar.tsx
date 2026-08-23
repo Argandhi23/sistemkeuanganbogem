@@ -13,6 +13,7 @@ import {
 export function Navbar() {
   const { data: session } = useSession();
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   const handleManualSync = async () => {
@@ -31,6 +32,20 @@ export function Navbar() {
     } finally {
       setIsSyncing(false);
       setTimeout(() => setSyncFeedback(null), 4000);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    try {
+      setIsLoggingOut(true);
+      // Panggil signOut tanpa auto redirect untuk menghindari proxy mismatch / hang di hosting
+      await signOut({ redirect: false });
+    } catch (err) {
+      console.warn('NextAuth signOut warning:', err);
+    } finally {
+      // Hard redirect ke login agar sesi bersih total
+      window.location.href = '/login';
     }
   };
 
@@ -107,13 +122,14 @@ export function Navbar() {
                   </div>
                 </div>
 
-                {/* Tombol Logout */}
+                {/* Tombol Logout Aman & Handal */}
                 <button
-                  onClick={() => signOut({ callbackUrl: '/login' })}
+                  onClick={handleLogout}
+                  disabled={isLoggingOut}
                   title="Keluar dari Akun"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors disabled:opacity-50"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className={`w-4 h-4 ${isLoggingOut ? 'animate-pulse text-rose-500' : ''}`} />
                 </button>
               </div>
             )}

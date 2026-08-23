@@ -22,6 +22,8 @@ interface AccountItem {
   category: string;
 }
 
+let clientAccountsCache: AccountItem[] | null = null;
+
 export default function EditTransaksiPage() {
   const router = useRouter();
   const params = useParams();
@@ -30,7 +32,7 @@ export default function EditTransaksiPage() {
   const isAdmin = session?.user?.role === 'ADMIN';
 
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>('PEMASUKAN');
-  const [accounts, setAccounts] = useState<AccountItem[]>([]);
+  const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [amount, setAmount] = useState<number>(0);
   const [date, setDate] = useState<string>('');
@@ -44,12 +46,17 @@ export default function EditTransaksiPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
+    const fetchAccountsPromise = clientAccountsCache
+      ? Promise.resolve({ data: clientAccountsCache })
+      : fetch('/api/accounts').then((r) => r.json());
+
     Promise.all([
-      fetch('/api/accounts').then((r) => r.json()),
+      fetchAccountsPromise,
       fetch(`/api/transaksi/${id}`).then((r) => r.json()),
     ])
       .then(([accountsRes, trxRes]) => {
         const accList: AccountItem[] = accountsRes.data || [];
+        clientAccountsCache = accList;
         setAccounts(accList);
 
         if (trxRes.data) {

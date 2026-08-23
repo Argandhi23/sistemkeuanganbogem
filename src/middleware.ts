@@ -4,25 +4,16 @@ import { NextResponse } from 'next/server';
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token;
-    const pathname = req.nextUrl.pathname;
+    const { pathname } = req.nextUrl;
 
-    // Proteksi Halaman Khusus ADMIN
-    if (
+    // Proteksi khusus rute Admin
+    const isAdminRoute =
       pathname.startsWith('/users') ||
       pathname.startsWith('/logs') ||
-      pathname.startsWith('/accounts') ||
-      pathname.startsWith('/api/users') ||
-      pathname.startsWith('/api/logs')
-    ) {
-      if (token?.role !== 'ADMIN') {
-        if (pathname.startsWith('/api/')) {
-          return NextResponse.json(
-            { error: 'Akses ditolak. Fitur ini khusus untuk Administrator.' },
-            { status: 403 }
-          );
-        }
-        return NextResponse.redirect(new URL('/', req.url));
-      }
+      pathname.startsWith('/accounts');
+
+    if (isAdminRoute && token?.role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/', req.url));
     }
 
     return NextResponse.next();
@@ -39,19 +30,12 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    '/',
-    '/transaksi/:path*',
-    '/laporan/:path*',
-    '/accounts/:path*',
-    '/users/:path*',
-    '/logs/:path*',
-    '/bantuan/:path*',
-    '/api/transaksi/:path*',
-    '/api/accounts/:path*',
-    '/api/users/:path*',
-    '/api/logs/:path*',
-    '/api/sync/:path*',
-    '/api/dashboard/:path*',
-    '/api/laporan/:path*',
+    /*
+     * Match all request paths except:
+     * - api/auth (NextAuth endpoints)
+     * - login (auth page)
+     * - static files (_next/static, _next/image, favicon.ico, logo.png, fonts)
+     */
+    '/((?!api/auth|login|_next/static|_next/image|favicon.ico|logo.png|fonts).*)',
   ],
 };

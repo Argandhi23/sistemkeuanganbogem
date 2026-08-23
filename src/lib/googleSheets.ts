@@ -164,9 +164,8 @@ export async function appendTransactionRow(
 
     const sheetRowId = extractRowNumberFromRange(res.data.updates?.updatedRange);
 
-    // Auto update tab Laporan Bulanan & Neraca di background (non-blocking)
-    syncMonthlyFinancialReportToSheet().catch(() => {});
-    syncBalanceSheetToSheet().catch(() => {});
+    // Auto update tab Laporan Bulanan & Neraca secara debounced di latar belakang
+    triggerDebouncedReportSync();
 
     return { success: true, sheetRowId };
   } catch (error) {
@@ -230,8 +229,7 @@ export async function updateTransactionRow(
       },
     });
 
-    syncMonthlyFinancialReportToSheet().catch(() => {});
-    syncBalanceSheetToSheet().catch(() => {});
+    triggerDebouncedReportSync();
 
     return { success: true, sheetRowId: targetRow };
   } catch (error) {
@@ -272,14 +270,25 @@ export async function clearTransactionRow(sheetRowId: number | null | undefined,
       },
     });
 
-    syncMonthlyFinancialReportToSheet().catch(() => {});
-    syncBalanceSheetToSheet().catch(() => {});
+    triggerDebouncedReportSync();
 
     return { success: true };
   } catch (error) {
     console.error('Error clearing transaction in Google Sheets:', error);
     return { success: false, error };
   }
+}
+
+let debounceReportSyncTimer: NodeJS.Timeout | null = null;
+
+export function triggerDebouncedReportSync() {
+  if (debounceReportSyncTimer) {
+    clearTimeout(debounceReportSyncTimer);
+  }
+  debounceReportSyncTimer = setTimeout(() => {
+    syncMonthlyFinancialReportToSheet().catch(() => {});
+    syncBalanceSheetToSheet().catch(() => {});
+  }, 8000);
 }
 
 // ==========================================

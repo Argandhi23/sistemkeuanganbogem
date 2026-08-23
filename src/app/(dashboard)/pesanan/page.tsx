@@ -11,6 +11,9 @@ import {
   Phone,
   Edit2,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -34,53 +37,82 @@ interface CateringOrderItem {
   };
 }
 
+interface PaginationMeta {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
 export default function PesananPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
   const currentUserId = session?.user?.id;
 
   const [orders, setOrders] = useState<CateringOrderItem[]>([]);
+  const [pagination, setPagination] = useState<PaginationMeta>({
+    total: 0,
+    page: 1,
+    limit: 25,
+    totalPages: 1,
+    hasNext: false,
+    hasPrev: false,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<CateringOrderItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const fetchOrders = useCallback(async () => {
     try {
       setIsLoading(true);
-      let url = '/api/pesanan';
       const params = new URLSearchParams();
+      params.append('page', currentPage.toString());
+      params.append('limit', '25');
+
       if (statusFilter !== 'ALL') {
         params.append('status', statusFilter);
       }
-      if (searchQuery) {
-        params.append('search', searchQuery);
-      }
-      if (params.toString()) {
-        url += `?${params.toString()}`;
+      if (debouncedSearch) {
+        params.append('search', debouncedSearch);
       }
 
-      const res = await fetch(url);
+      const res = await fetch(`/api/pesanan?${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
         setOrders(json.data || []);
+        if (json.pagination) {
+          setPagination(json.pagination);
+        }
       }
     } catch (err) {
       console.error('Error fetching orders:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [statusFilter, searchQuery]);
+  }, [statusFilter, debouncedSearch, currentPage]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    fetchOrders();
+  const handleStatusFilterChange = (st: string) => {
+    setStatusFilter(st);
+    setCurrentPage(1);
   };
 
   const handleDelete = async () => {
@@ -148,41 +180,36 @@ export default function PesananPage() {
             {['ALL', 'PENDING', 'DIPROSES', 'SELESAI', 'DIBATALKAN'].map((st) => (
               <button
                 key={st}
-                onClick={() => setStatusFilter(st)}
+                onClick={() => handleStatusFilterChange(st)}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors select-none ${
                   statusFilter === st
                     ? 'bg-white text-slate-900 shadow-subtle font-semibold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {st === 'ALL' ? 'Semua' : st}
+                {st === 'ALL' ? `Semua (${pagination.total})` : st}
               </button>
             ))}
           </div>
 
-          <form onSubmit={handleSearchSubmit} className="flex items-center gap-1.5 w-full sm:w-72">
-            <div className="relative w-full">
-              <input
-                type="text"
-                placeholder="Cari pemesan / menu..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-8 pl-8 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-slate-900 focus:outline-none"
-              />
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            </div>
-            <button
-              type="submit"
-              className="h-8 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-medium transition-colors"
-            >
-              Cari
-            </button>
-          </form>
+          <div className="relative w-full sm:w-72">
+            <input
+              type="text"
+              placeholder="Cari pemesan / menu..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-9 pl-9 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-slate-900 focus:outline-none transition-all"
+            />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            {isLoading && (
+              <RefreshCw className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3 animate-spin" />
+            )}
+          </div>
         </div>
       </div>
 
       {/* Konten Pesanan */}
-      {isLoading ? (
+      {isLoading && orders.length === 0 ? (
         <div className="bg-white rounded-xl p-10 text-center text-slate-400 border border-slate-200 text-xs">
           Memuat data pesanan...
         </div>
@@ -191,7 +218,9 @@ export default function PesananPage() {
           <ShoppingBag className="w-10 h-10 text-slate-300 mx-auto mb-2" />
           <h3 className="text-sm font-semibold text-slate-800">Belum Ada Pesanan</h3>
           <p className="mt-0.5 text-xs text-slate-500 max-w-sm mx-auto">
-            Catat pesanan catering pertama pelanggan Anda.
+            {debouncedSearch
+              ? 'Tidak ada pesanan yang cocok dengan pencarian Anda.'
+              : 'Catat pesanan catering pertama pelanggan Anda.'}
           </p>
         </div>
       ) : (
@@ -366,6 +395,41 @@ export default function PesananPage() {
               </table>
             </div>
           </div>
+
+          {/* Pagination Controls */}
+          {pagination.totalPages > 1 && (
+            <div className="bg-white rounded-xl p-3 border border-slate-200/80 shadow-subtle flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+              <span className="text-slate-500 font-medium">
+                Menampilkan {((pagination.page - 1) * pagination.limit) + 1} -{' '}
+                {Math.min(pagination.page * pagination.limit, pagination.total)} dari{' '}
+                <span className="font-bold text-slate-900">{pagination.total}</span> data
+              </span>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={!pagination.hasPrev || isLoading}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Sebelumnya</span>
+                </button>
+
+                <span className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-900 font-semibold">
+                  Halaman {pagination.page} dari {pagination.totalPages}
+                </span>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(pagination.totalPages, p + 1))}
+                  disabled={!pagination.hasNext || isLoading}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  <span>Berikutnya</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

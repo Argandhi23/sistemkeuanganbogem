@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import {
   Wallet,
   ArrowDownLeft,
@@ -14,16 +15,15 @@ import {
   ChevronRight,
   Scale,
 } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
+
+const CashFlowChart = dynamic(() => import('@/components/dashboard/CashFlowChart'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-60 w-full flex items-center justify-center text-slate-400 text-xs font-medium animate-pulse bg-slate-50 rounded-xl">
+      Memuat grafik arus kas...
+    </div>
+  ),
+});
 
 interface DashboardData {
   summary: {
@@ -315,52 +315,8 @@ export default function DashboardPage() {
           <div className="h-56 flex items-center justify-center text-slate-400 text-xs font-medium">
             Memuat grafik...
           </div>
-        ) : data?.chartData && data.chartData.length > 0 ? (
-          <div className="h-60 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={data.chartData}
-                margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: '#64748b', fontSize: 11 }}
-                  axisLine={{ stroke: '#e2e8f0' }}
-                  tickLine={false}
-                />
-                <YAxis
-                  tickFormatter={(val) => `Rp${(val / 1000).toLocaleString('id-ID')}k`}
-                  tick={{ fill: '#64748b', fontSize: 11 }}
-                  axisLine={{ stroke: '#e2e8f0' }}
-                  tickLine={false}
-                />
-                <Tooltip
-                  formatter={(val: unknown) => [
-                    `Rp ${Number(Array.isArray(val) ? val[0] : val || 0).toLocaleString('id-ID')}`,
-                    '',
-                  ]}
-                  contentStyle={{
-                    borderRadius: '0.75rem',
-                    border: '1px solid #e2e8f0',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                  }}
-                />
-                <Legend
-                  wrapperStyle={{ paddingTop: '8px', fontSize: '11px' }}
-                  formatter={(val) => (val === 'pemasukan' ? 'Pemasukan' : 'Pengeluaran')}
-                />
-                <Bar dataKey="pemasukan" fill="#16a34a" radius={[4, 4, 0, 0]} name="pemasukan" maxBarSize={32} />
-                <Bar dataKey="pengeluaran" fill="#e11d48" radius={[4, 4, 0, 0]} name="pengeluaran" maxBarSize={32} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
         ) : (
-          <div className="h-40 flex items-center justify-center text-slate-400 text-xs">
-            Belum ada data untuk grafik
-          </div>
+          <CashFlowChart data={data?.chartData || []} />
         )}
       </div>
 

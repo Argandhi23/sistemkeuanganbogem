@@ -82,8 +82,12 @@ model Transaction {
   @@index([date])
   @@index([type])
   @@index([accountId])
+  @@index([category])
+  @@index([createdById])
   @@index([syncedToSheet])
   @@index([type, date])
+  @@index([accountId, date])
+  @@index([createdById, date])
 }
 
 model CateringOrder {
@@ -105,8 +109,11 @@ model CateringOrder {
 
   @@index([status])
   @@index([eventDate])
+  @@index([customerName])
+  @@index([createdById])
   @@index([syncedToSheet])
   @@index([createdAt])
+  @@index([status, eventDate])
 }
 
 model ActivityLog {
@@ -121,4 +128,6 @@ model ActivityLog {
 
   @@index([createdAt])
   @@index([userId])
+  @@index([targetType, targetId])
+  @@index([userId, createdAt])
 }

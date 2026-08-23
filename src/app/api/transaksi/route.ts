@@ -19,9 +19,15 @@ export async function GET(req: NextRequest) {
     const type = searchParams.get('type');
     const category = searchParams.get('category');
     const accountId = searchParams.get('accountId');
-    const search = searchParams.get('search');
+    const search = searchParams.get('search')?.trim();
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const all = searchParams.get('all') === 'true';
+
+    // Pagination parameters
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '25', 10)));
+    const skip = (page - 1) * limit;
 
     const where: Prisma.TransactionWhereInput = {};
 
@@ -55,22 +61,71 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const transactions = await prisma.transaction.findMany({
-      where,
-      include: {
-        account: true,
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+    // Jalankan query data, total count, dan sum summary secara PARALEL
+    const [transactions, totalCount, totalsByType] = await Promise.all([
+      prisma.transaction.findMany({
+        where,
+        select: {
+          id: true,
+          type: true,
+          category: true,
+          accountId: true,
+          description: true,
+          amount: true,
+          date: true,
+          createdById: true,
+          syncedToSheet: true,
+          account: {
+            select: {
+              code: true,
+              name: true,
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
           },
         },
-      },
-      orderBy: { date: 'desc' },
-    });
+        orderBy: { date: 'desc' },
+        ...(all ? {} : { skip, take: limit }),
+      }),
+      prisma.transaction.count({ where }),
+      prisma.transaction.groupBy({
+        by: ['type'],
+        where,
+        _sum: { amount: true },
+      }),
+    ]);
 
-    return NextResponse.json({ data: transactions });
+    let totalIncome = 0;
+    let totalExpense = 0;
+    for (const item of totalsByType) {
+      const sum = Number(item._sum.amount || 0);
+      if (item.type === 'PEMASUKAN') totalIncome += sum;
+      if (item.type === 'PENGELUARAN') totalExpense += sum;
+    }
+
+    const totalPages = all ? 1 : Math.ceil(totalCount / limit);
+
+    return NextResponse.json({
+      data: transactions,
+      pagination: {
+        total: totalCount,
+        page: all ? 1 : page,
+        limit: all ? totalCount : limit,
+        totalPages,
+        hasNext: all ? false : page < totalPages,
+        hasPrev: all ? false : page > 1,
+      },
+      summary: {
+        totalIncome,
+        totalExpense,
+        netBalance: totalIncome - totalExpense,
+      },
+    });
   } catch (error) {
     console.error('Error fetching transactions:', error);
     return NextResponse.json(
@@ -100,13 +155,16 @@ export async function POST(req: NextRequest) {
 
     // Jika accountId ada tapi category belum spesifik, ambil nama akun
     if (accountId) {
-      const acc = await prisma.account.findUnique({ where: { id: accountId } });
+      const acc = await prisma.account.findUnique({
+        where: { id: accountId },
+        select: { name: true },
+      });
       if (acc) {
         category = acc.name;
       }
     }
 
-    // 1. Simpan ke Database (PostgreSQL - Source of Truth)
+    // 1. Simpan ke Database
     const transaction = await prisma.transaction.create({
       data: {
         type,
@@ -118,9 +176,20 @@ export async function POST(req: NextRequest) {
         createdById: session.user.id,
         syncedToSheet: false,
       },
-      include: {
-        account: true,
-        createdBy: { select: { id: true, name: true } },
+      select: {
+        id: true,
+        type: true,
+        category: true,
+        description: true,
+        amount: true,
+        date: true,
+        syncedToSheet: true,
+        account: {
+          select: { code: true, name: true },
+        },
+        createdBy: {
+          select: { id: true, name: true },
+        },
       },
     });
 

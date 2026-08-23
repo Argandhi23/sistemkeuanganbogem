@@ -20,6 +20,8 @@ interface AccountItem {
   category: string;
 }
 
+let clientAccountsCache: AccountItem[] | null = null;
+
 function TambahTransaksiForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -28,8 +30,18 @@ function TambahTransaksiForm() {
   const initialType = searchParams.get('type') === 'PENGELUARAN' ? 'PENGELUARAN' : 'PEMASUKAN';
 
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>(initialType);
-  const [accounts, setAccounts] = useState<AccountItem[]>([]);
-  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(() => {
+    if (clientAccountsCache && clientAccountsCache.length > 0) {
+      const filtered = clientAccountsCache.filter((a) =>
+        initialType === 'PEMASUKAN'
+          ? a.category === 'PENDAPATAN'
+          : a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL'
+      );
+      return filtered.length > 0 ? filtered[0].id : clientAccountsCache[0].id;
+    }
+    return '';
+  });
   const [amount, setAmount] = useState<number>(0);
   const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
@@ -38,10 +50,14 @@ function TambahTransaksiForm() {
   const [isSuccess, setIsSuccess] = useState(false);
 
   useEffect(() => {
+    if (clientAccountsCache && clientAccountsCache.length > 0) {
+      return;
+    }
     fetch('/api/accounts')
       .then((res) => res.json())
       .then((json) => {
         const list: AccountItem[] = json.data || [];
+        clientAccountsCache = list;
         setAccounts(list);
 
         const filtered = list.filter((a) =>
