@@ -178,12 +178,15 @@ export async function getIncomeStatement(startDate: Date, endDate: Date): Promis
         accLower === catLower ||
         accLower.includes(catLower) ||
         catLower.includes(accLower) ||
-        (catLower.includes('catering') && a.code === '4001') ||
-        (catLower.includes('bahan baku') && a.code === '5001') ||
-        (catLower.includes('operasional') && a.code === '5005') ||
-        (catLower.includes('gas') && a.code === '5005') ||
-        (catLower.includes('kemasan') && a.code === '5002') ||
-        (catLower.includes('upah') && a.code === '5003')
+        (catLower.includes('catering') && (a.code === '401' || a.code === '4001')) ||
+        (catLower.includes('bahan baku') && (a.code === '501' || a.code === '5001')) ||
+        (catLower.includes('tenaga kerja') && a.code === '502') ||
+        (catLower.includes('upah') && a.code === '502') ||
+        (catLower.includes('kemasan') && (a.code === '503' || a.code === '5002')) ||
+        (catLower.includes('transportasi') && (a.code === '504' || a.code === '5004')) ||
+        (catLower.includes('gas') && (a.code === '505' || a.code === '5005')) ||
+        (catLower.includes('listrik') && (a.code === '505' || a.code === '5005')) ||
+        (catLower.includes('operasional') && (a.code === '505' || a.code === '506'))
       );
     });
 
@@ -654,8 +657,12 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
         accLower === catLower ||
         accLower.includes(catLower) ||
         catLower.includes(accLower) ||
-        (catLower.includes('catering') && a.code === '4001') ||
-        (catLower.includes('bahan baku') && a.code === '5001')
+        (catLower.includes('catering') && (a.code === '401' || a.code === '4001')) ||
+        (catLower.includes('bahan baku') && (a.code === '501' || a.code === '5001')) ||
+        (catLower.includes('tenaga kerja') && a.code === '502') ||
+        (catLower.includes('kemasan') && (a.code === '503' || a.code === '5002')) ||
+        (catLower.includes('transportasi') && (a.code === '504' || a.code === '5004')) ||
+        (catLower.includes('gas') && (a.code === '505' || a.code === '5005'))
       );
     });
 
@@ -688,20 +695,30 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
 
   const currentPeriodProfit = totalRevenue - totalExpenses;
 
-  // 1. ASET LANCAR
+  // 1. ASET LANCAR (Kas 101, Bank 102, Piutang 103, Persediaan 104)
+  const isFixedAsset = (acc: typeof accounts[0]) =>
+    acc.code === '105' ||
+    acc.code.startsWith('12') ||
+    acc.name.toLowerCase().includes('peralatan') ||
+    acc.name.toLowerCase().includes('inventaris');
+
   const currentAssetAccounts = accounts.filter(
-    (a) => a.category === AccountCategory.ASET && a.code.startsWith('11')
+    (a) => a.category === AccountCategory.ASET && !isFixedAsset(a)
   );
 
   const currentAssetItems: BalanceSheetItem[] = [];
+  
+  // Jika akun 101 Kas terdaftar
+  const kasAccount = currentAssetAccounts.find((a) => a.code === '101' || a.name.toLowerCase() === 'kas');
   currentAssetItems.push({
-    code: '1001',
-    name: 'Kas Tunai di Bendahara',
+    id: kasAccount?.id,
+    code: kasAccount?.code || '101',
+    name: kasAccount?.name || 'Kas',
     amount: netCashBalance > 0 ? netCashBalance : 0,
   });
 
   for (const acc of currentAssetAccounts) {
-    if (acc.code !== '1001') {
+    if (acc.code !== '101' && acc.code !== (kasAccount?.code || '101')) {
       currentAssetItems.push({
         id: acc.id,
         code: acc.code,
@@ -713,9 +730,9 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
 
   const totalCurrentAssets = currentAssetItems.reduce((sum, item) => sum + item.amount, 0);
 
-  // 2. ASET TETAP
+  // 2. ASET TETAP (105 Peralatan catering)
   const fixedAssetAccounts = accounts.filter(
-    (a) => a.category === AccountCategory.ASET && a.code.startsWith('12')
+    (a) => a.category === AccountCategory.ASET && isFixedAsset(a)
   );
 
   const fixedAssetItems: BalanceSheetItem[] = [];
@@ -735,9 +752,9 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
   const totalFixedAssets = fixedAssetItems.reduce((sum, item) => sum + item.amount, 0);
   const totalAssets = totalCurrentAssets + totalFixedAssets;
 
-  // 3. KEWAJIBAN (LIABILITAS)
+  // 3. KEWAJIBAN (LIABILITAS - 201 Utang usaha)
   const currentLiabAccounts = accounts.filter(
-    (a) => a.category === AccountCategory.KEWAJIBAN && a.code.startsWith('21')
+    (a) => a.category === AccountCategory.KEWAJIBAN && !a.code.startsWith('22')
   );
   const longLiabAccounts = accounts.filter(
     (a) => a.category === AccountCategory.KEWAJIBAN && a.code.startsWith('22')
@@ -761,7 +778,7 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
   const totalLongTermLiabilities = longLiabItems.reduce((sum, item) => sum + item.amount, 0);
   const totalLiabilities = totalCurrentLiabilities + totalLongTermLiabilities;
 
-  // 4. EKUITAS (MODAL)
+  // 4. EKUITAS (MODAL - 301 Modal usaha, 302 Laba ditahan)
   const capitalAccounts = accounts.filter((a) => a.category === AccountCategory.MODAL);
   const capitalItems: BalanceSheetItem[] = [];
 

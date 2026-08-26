@@ -145,20 +145,20 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({ error: 'Silakan login terlebih dahulu' }, { status: 401 });
     }
 
-    // RBAC: Hanya ADMIN yang boleh menghapus data transaksi
-    if (session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Hanya Administrator yang memiliki akses untuk menghapus data' },
-        { status: 403 }
-      );
-    }
-
     const existing = await prisma.transaction.findUnique({
       where: { id: params.id },
     });
 
     if (!existing) {
       return NextResponse.json({ error: 'Data transaksi tidak ditemukan' }, { status: 404 });
+    }
+
+    // RBAC: Admin dapat menghapus data apapun; Petugas hanya data buatannya sendiri
+    if (session.user.role !== 'ADMIN' && existing.createdById !== session.user.id) {
+      return NextResponse.json(
+        { error: 'Anda hanya diperbolehkan menghapus transaksi yang Anda input sendiri atau hubungi Administrator' },
+        { status: 403 }
+      );
     }
 
     // 1. Hapus dari Database terlebih dahulu

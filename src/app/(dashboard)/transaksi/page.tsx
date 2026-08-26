@@ -344,7 +344,7 @@ export default function TransaksiPage() {
                           Edit
                         </Link>
                       )}
-                      {isAdmin && (
+                      {canEdit && (
                         <button onClick={() => setDeleteTarget(trx)} className="text-rose-600 hover:text-rose-700 font-medium px-2 py-0.5 rounded hover:bg-rose-50">
                           Hapus
                         </button>
@@ -441,7 +441,7 @@ export default function TransaksiPage() {
                               </Link>
                             )}
 
-                            {isAdmin && (
+                            {canEdit && (
                               <button
                                 onClick={() => setDeleteTarget(trx)}
                                 title="Hapus Transaksi"

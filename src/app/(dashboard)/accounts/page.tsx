@@ -45,51 +45,51 @@ const CATEGORY_METADATA: Record<
 > = {
   ASET: {
     label: 'Aset (Aktiva)',
-    prefix: '1xxx',
+    prefix: '1xx',
     bg: 'bg-blue-50',
     text: 'text-blue-800',
     border: 'border-blue-200',
-    desc: 'Kas tunai, bank, piutang usaha, dan perlengkapan inventaris catering.',
+    desc: 'Kas, bank/rekening, piutang, persediaan bahan baku, dan peralatan catering.',
   },
   KEWAJIBAN: {
     label: 'Kewajiban (Utang)',
-    prefix: '2xxx',
+    prefix: '2xx',
     bg: 'bg-amber-50',
     text: 'text-amber-800',
     border: 'border-amber-200',
-    desc: 'Utang supplier bahan baku, operasional, gaji akrual, atau pinjaman.',
+    desc: 'Utang usaha, pinjaman, dan kewajiban operasional lain.',
   },
   MODAL: {
     label: 'Ekuitas (Modal)',
-    prefix: '3xxx',
+    prefix: '3xx',
     bg: 'bg-indigo-50',
     text: 'text-indigo-800',
     border: 'border-indigo-200',
-    desc: 'Penyertaan modal awal desa (APBDes), donasi/hibah, dan cadangan laba.',
+    desc: 'Modal usaha, laba ditahan, dan cadangan ekuitas unit usaha.',
   },
   PENDAPATAN: {
     label: 'Pendapatan Usaha',
-    prefix: '4xxx',
+    prefix: '4xx',
     bg: 'bg-emerald-50',
     text: 'text-emerald-800',
     border: 'border-emerald-200',
-    desc: 'Penjualan catering harian, box, prasmanan, dan sewa alat.',
+    desc: 'Pendapatan catering dan pendapatan usaha lain-lain.',
   },
   BEBAN_OPERASIONAL: {
     label: 'Beban Operasional',
-    prefix: '5xxx',
+    prefix: '5xx',
     bg: 'bg-rose-50',
     text: 'text-rose-800',
     border: 'border-rose-200',
-    desc: 'Bahan baku makanan, kemasan, upah tenaga masak, gas elpiji & listrik.',
+    desc: 'Beban bahan baku, tenaga kerja, kemasan, transportasi, gas/listrik/air, dan lain-lain.',
   },
   BEBAN_NON_OPERASIONAL: {
     label: 'Beban Non-Operasional',
-    prefix: '6xxx',
+    prefix: '6xx',
     bg: 'bg-slate-100',
     text: 'text-slate-800',
     border: 'border-slate-300',
-    desc: 'Biaya administrasi bank, transfer, dan pengeluaran lain-lain.',
+    desc: 'Biaya administrasi bank, transfer, dan beban non-operasional lainnya.',
   },
 };
 
@@ -346,7 +346,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[1xxx] Aset</span>
+            <span>[1xx] Aset</span>
             <Scale className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.aset}</div>
@@ -361,7 +361,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[2xxx] Utang</span>
+            <span>[2xx] Utang</span>
             <TrendingDown className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.kewajiban}</div>
@@ -376,7 +376,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[3xxx] Modal</span>
+            <span>[3xx] Modal</span>
             <ShieldCheck className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.modal}</div>
@@ -391,7 +391,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[4xxx] Pendapatan</span>
+            <span>[4xx] Pendapatan</span>
             <TrendingUp className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.pendapatan}</div>
@@ -406,7 +406,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[5-6x] Beban</span>
+            <span>[5xx] Beban</span>
             <BookOpen className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.beban}</div>

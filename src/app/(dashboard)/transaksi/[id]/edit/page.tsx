@@ -30,10 +30,12 @@ export default function EditTransaksiPage() {
   const id = params.id as string;
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
+  const currentUserId = session?.user?.id;
 
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>('PEMASUKAN');
   const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [createdById, setCreatedById] = useState<string>('');
   const [amount, setAmount] = useState<number>(0);
   const [date, setDate] = useState<string>('');
   const [description, setDescription] = useState('');
@@ -65,6 +67,7 @@ export default function EditTransaksiPage() {
           setAmount(Number(trx.amount));
           setDate(new Date(trx.date).toISOString().split('T')[0]);
           setDescription(trx.description);
+          setCreatedById(trx.createdById || '');
 
           if (trx.accountId) {
             setSelectedAccountId(trx.accountId);
@@ -195,7 +198,7 @@ export default function EditTransaksiPage() {
         backHref="/transaksi"
         backLabel="Kembali ke Buku Kas"
         action={
-          isAdmin ? (
+          (isAdmin || (createdById && createdById === currentUserId)) ? (
             <button
               type="button"
               onClick={() => setShowDeleteModal(true)}

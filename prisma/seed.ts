@@ -39,29 +39,40 @@ async function main() {
   console.log(`- Admin: ${admin.email} (Password: admin123)`);
   console.log(`- Petugas: ${user.email} (Password: petugas123)`);
 
-  // 3. Seed Chart of Accounts (COA)
+  // 3. Seed Chart of Accounts (COA) sesuai catatan standar BUMDes Bogem
   const defaultAccounts = [
-    { code: '4001', name: 'Penjualan Catering Harian & Nasi Box', category: AccountCategory.PENDAPATAN },
-    { code: '4002', name: 'Penjualan Pesanan Event & Prasmanan', category: AccountCategory.PENDAPATAN },
-    { code: '4003', name: 'Pendapatan Sewa Peralatan Catering', category: AccountCategory.PENDAPATAN },
-    { code: '4004', name: 'Pendapatan Usaha Lain-lain', category: AccountCategory.PENDAPATAN },
-    { code: '5001', name: 'Beban Bahan Baku Makanan (Beras, Daging, Sayur)', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5002', name: 'Beban Kemasan, Box & Plastik', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5003', name: 'Beban Upah & Gaji Tenaga Masak', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5004', name: 'Beban Transportasi & Pengantaran', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5005', name: 'Beban Listrik, Gas Elpiji & Air', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5006', name: 'Beban Peralatan & Perlengkapan Dapur', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '6001', name: 'Beban Administrasi Bank & Transfer', category: AccountCategory.BEBAN_NON_OPERASIONAL },
-    { code: '6002', name: 'Beban Non-Operasional Lain-lain', category: AccountCategory.BEBAN_NON_OPERASIONAL },
-    { code: '1001', name: 'Kas Tunai & Rekening BUMDes Bogem', category: AccountCategory.ASET },
-    { code: '3001', name: 'Modal Awal BUMDes Bogem', category: AccountCategory.MODAL },
+    // 1xx - ASET
+    { code: '101', name: 'Kas', category: AccountCategory.ASET },
+    { code: '102', name: 'Bank / Rekening', category: AccountCategory.ASET },
+    { code: '103', name: 'Piutang', category: AccountCategory.ASET },
+    { code: '104', name: 'Persediaan bahan baku', category: AccountCategory.ASET },
+    { code: '105', name: 'Peralatan catering', category: AccountCategory.ASET },
+
+    // 2xx - KEWAJIBAN / UTANG
+    { code: '201', name: 'Utang usaha', category: AccountCategory.KEWAJIBAN },
+
+    // 3xx - EKUITAS / MODAL
+    { code: '301', name: 'Modal usaha', category: AccountCategory.MODAL },
+    { code: '302', name: 'Laba ditahan', category: AccountCategory.MODAL },
+
+    // 4xx - PENDAPATAN
+    { code: '401', name: 'Pendapatan catering', category: AccountCategory.PENDAPATAN },
+    { code: '402', name: 'Pend. Usaha lain-lain', category: AccountCategory.PENDAPATAN },
+
+    // 5xx - BEBAN OPERASIONAL
+    { code: '501', name: 'Beban bahan baku', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '502', name: 'Beban tenaga kerja', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '503', name: 'Beban kemasan', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '504', name: 'Beban transportasi', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '505', name: 'Beban Gas, listrik & air', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '506', name: 'Beban lain-lain', category: AccountCategory.BEBAN_OPERASIONAL },
   ];
 
   const accountMap: Record<string, string> = {};
   for (const acc of defaultAccounts) {
     const createdAcc = await prisma.account.upsert({
       where: { code: acc.code },
-      update: { name: acc.name, category: acc.category },
+      update: { name: acc.name, category: acc.category, isActive: true },
       create: acc,
     });
     accountMap[acc.code] = createdAcc.id;
@@ -75,8 +86,8 @@ async function main() {
       data: [
         {
           type: TransactionType.PEMASUKAN,
-          category: 'Penjualan Pesanan Event & Prasmanan',
-          accountId: accountMap['4002'],
+          category: 'Pendapatan catering',
+          accountId: accountMap['401'],
           description: 'Pembayaran DP Pesanan Prasmanan Pernikahan Bu Rini',
           amount: 2500000,
           date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
@@ -85,8 +96,8 @@ async function main() {
         },
         {
           type: TransactionType.PENGELUARAN,
-          category: 'Beban Bahan Baku Makanan (Beras, Daging, Sayur)',
-          accountId: accountMap['5001'],
+          category: 'Beban bahan baku',
+          accountId: accountMap['501'],
           description: 'Beli beras 50kg, ayam potong 20kg, dan bumbu dapur di Pasar Bogem',
           amount: 1200000,
           date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
@@ -95,9 +106,9 @@ async function main() {
         },
         {
           type: TransactionType.PENGELUARAN,
-          category: 'Beban Listrik, Gas Elpiji & Air',
-          accountId: accountMap['5005'],
-          description: 'Beli gas elpiji 3kg (4 tabung) dan plastik kemasan box',
+          category: 'Beban Gas, listrik & air',
+          accountId: accountMap['505'],
+          description: 'Beli gas elpiji 3kg (4 tabung) dan token listrik dapur catering',
           amount: 180000,
           date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
           createdById: user.id,
@@ -105,8 +116,8 @@ async function main() {
         },
         {
           type: TransactionType.PEMASUKAN,
-          category: 'Penjualan Catering Harian & Nasi Box',
-          accountId: accountMap['4001'],
+          category: 'Pendapatan catering',
+          accountId: accountMap['401'],
           description: 'Pelunasan Nasi Box Rapat Desa Bogem (100 Kotak)',
           amount: 2000000,
           date: new Date(),
