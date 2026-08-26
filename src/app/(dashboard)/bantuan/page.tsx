@@ -40,18 +40,28 @@ export default function BantuanPage() {
       ],
     },
     {
-      title: '3. Cara Melihat & Mencetak Laporan Lengkap',
+      title: '3. Cara Mencatat Penambahan Modal & Bagi Hasil PADes',
+      icon: <Wallet className="w-4 h-4 text-purple-600" />,
+      steps: [
+        'Untuk Penambahan Modal / Investasi Baru: Klik "+ Catat Uang Masuk", masukkan nominal modal yang disuntikkan, dan pilih akun [3001] Modal Usaha / Modal Awal BUMDes.',
+        'Tulis keterangan transaksi (contoh: "Penyertaan Modal Tambahan dari APBDes Desa Bogem 2026").',
+        'Untuk Penarikan Bagi Hasil PADes: Klik "- Catat Uang Keluar", masukkan nominal, dan pilih akun [3001] Modal Usaha atau [3002] Laba Ditahan.',
+        'Klik "Simpan Transaksi". Transaksi otomatis tercatat di Buku Kas, Laporan Perubahan Modal, dan Laporan Neraca.',
+      ],
+    },
+    {
+      title: '4. Cara Melihat & Mencetak Laporan Lengkap',
       icon: <Printer className="w-4 h-4 text-blue-600" />,
       steps: [
         'Buka menu "Laporan Keuangan" dari navigasi samping atau bawah.',
-        'Pilih jenis laporan: (1) Neraca Keuangan, (2) Laba Rugi, (3) Buku Besar per Akun, atau (4) Arus Kas.',
-        'Pilih periode pelaporan yang diinginkan.',
+        'Pilih jenis laporan: (1) Neraca Keuangan, (2) Laba Rugi, (3) Perubahan Modal, (4) Buku Besar per Akun, atau (5) Arus Kas.',
+        'Pilih periode pelaporan (bulan & tahun) yang diinginkan.',
         'Klik tombol "Sync Sheets" jika ingin menyinkronkan ringkasan laporan ke Google Spreadsheet BUMDes.',
         'Klik tombol "Cetak PDF" untuk mencetak dokumen resmi lengkap dengan kop Pemerintah Desa dan tanda tangan pengurus.',
       ],
     },
     {
-      title: '4. Memahami Sinkronisasi Otomatis Google Sheets',
+      title: '5. Memahami Sinkronisasi Otomatis Google Sheets',
       icon: <FileSpreadsheet className="w-4 h-4 text-emerald-600" />,
       steps: [
         'Setiap kali Anda menekan Simpan, data otomatis disalin ke Google Sheets secara realtime.',

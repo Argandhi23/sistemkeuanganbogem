@@ -79,6 +79,33 @@ async function main() {
   }
   console.log(`Seeded ${defaultAccounts.length} standard accounts in Chart of Accounts.`);
 
+  // 3.5. Bersihkan & Hapus seluruh akun 3-digit lama dari database
+  const old3DigitCodes = [
+    '101', '102', '103', '104', '105',
+    '201',
+    '301', '302',
+    '401', '402',
+    '501', '502', '503', '504', '505', '506'
+  ];
+
+  for (const oldCode of old3DigitCodes) {
+    const newCode = oldCode[0] + '00' + oldCode.slice(1);
+    const newAccId = accountMap[newCode];
+    const oldAcc = await prisma.account.findUnique({ where: { code: oldCode } });
+
+    if (oldAcc && newAccId) {
+      await prisma.transaction.updateMany({
+        where: { accountId: oldAcc.id },
+        data: { accountId: newAccId },
+      });
+    }
+  }
+
+  const deleteResult = await prisma.account.deleteMany({
+    where: { code: { in: old3DigitCodes } },
+  });
+  console.log(`Cleaned up ${deleteResult.count} legacy 3-digit accounts from database.`);
+
   // 4. Seed Sample Transactions if empty
   const countTransactions = await prisma.transaction.count();
   if (countTransactions === 0) {

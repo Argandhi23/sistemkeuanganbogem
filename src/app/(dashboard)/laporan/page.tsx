@@ -986,110 +986,222 @@ export default function LaporanPage() {
           </div>
         )}
 
-        {/* KONTEN TAB 3: REKAPITULASI ARUS KAS */}
+        {/* KONTEN TAB 5: LAPORAN ARUS KAS MANAJEMEN PROFESIONAL */}
         {activeTab === 'arus-kas' && (
           <div className="space-y-4">
             {isLoading ? (
               <div className="py-8 text-center text-slate-400 text-xs">
-                Memuat data Arus Kas...
+                Memuat data Laporan Arus Kas...
               </div>
             ) : !cashFlow ? (
               <div className="py-8 text-center text-slate-400 text-xs">Data tidak tersedia.</div>
             ) : (
               <div className="space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <div className="text-[10px] font-semibold text-slate-500 uppercase">Saldo Awal Kas</div>
-                    <div className="text-sm sm:text-base font-bold text-slate-900 mt-0.5 tabular-nums">
+                {/* 3 Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Saldo Awal Kas & Bank</div>
+                    <div className="text-lg font-bold text-slate-900 mt-0.5 tabular-nums">
                       Rp {cashFlow.openingCashBalance.toLocaleString('id-ID')}
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <div className="text-[10px] font-semibold text-slate-500 uppercase">Total Kas Masuk</div>
-                    <div className="text-sm sm:text-base font-bold text-emerald-700 mt-0.5 tabular-nums">
-                      + Rp {cashFlow.totalCashInflow.toLocaleString('id-ID')}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Arus Kas Bersih Berjalan</div>
+                    <div
+                      className={`text-lg font-bold mt-0.5 tabular-nums ${
+                        cashFlow.netCashFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                      }`}
+                    >
+                      {cashFlow.netCashFlow >= 0 ? '+' : '-'} Rp {Math.abs(cashFlow.netCashFlow).toLocaleString('id-ID')}
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                    <div className="text-[10px] font-semibold text-slate-500 uppercase">Total Kas Keluar</div>
-                    <div className="text-sm sm:text-base font-bold text-rose-700 mt-0.5 tabular-nums">
-                      - Rp {cashFlow.totalCashOutflow.toLocaleString('id-ID')}
-                    </div>
-                  </div>
-
-                  <div className="p-3 bg-slate-900 text-white rounded-xl">
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase">Saldo Akhir Kas</div>
-                    <div className="text-sm sm:text-base font-bold text-white mt-0.5 tabular-nums">
+                  <div className="p-3.5 bg-slate-900 text-white rounded-xl">
+                    <div className="text-[11px] font-semibold text-slate-400 uppercase">Saldo Akhir Kas & Bank</div>
+                    <div className="text-lg font-bold text-white mt-0.5 tabular-nums">
                       Rp {cashFlow.closingCashBalance.toLocaleString('id-ID')}
                     </div>
                   </div>
                 </div>
 
+                {/* Tabel Format Standar Manajemen 3 Pilar */}
                 <div className="overflow-x-auto border border-slate-300 rounded-xl bg-white">
-                  <table className="w-full text-left border-collapse text-xs min-w-[500px]">
+                  <table className="w-full text-left border-collapse text-xs min-w-[550px]">
                     <thead>
                       <tr className="bg-slate-100 font-semibold text-slate-700 text-[11px] uppercase border-b border-slate-300">
-                        <th className="py-2.5 px-3">Pos Aliran Kas</th>
-                        <th className="py-2.5 px-3 text-right w-36">Jumlah (Rp)</th>
+                        <th className="py-2.5 px-3">Uraian / Aktivitas Arus Kas (SAK EMKM)</th>
+                        <th className="py-2.5 px-3 text-right w-44">Jumlah (Rp)</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
-                      <tr className="bg-slate-50 font-bold text-slate-900">
-                        <td className="py-2 px-3">1. Saldo Kas Awal Periode</td>
-                        <td className="py-2 px-3 text-right tabular-nums">
-                          Rp {cashFlow.openingCashBalance.toLocaleString('id-ID')}
+                      {/* 1. AKTIVITAS OPERASI */}
+                      <tr className="bg-slate-100/90 font-bold text-slate-900 text-[11px] uppercase">
+                        <td colSpan={2} className="py-2 px-3">
+                          A. ARUS KAS DARI AKTIVITAS OPERASI
                         </td>
                       </tr>
-
-                      <tr className="bg-emerald-50/50 font-bold text-emerald-900 text-[11px] uppercase">
-                        <td colSpan={2} className="py-2 px-3">2. Arus Kas Masuk (Penerimaan)</td>
-                      </tr>
-                      {cashFlow.inflowBreakdown.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="py-1.5 px-3 pl-6 text-slate-800">{item.name}</td>
-                          <td className="py-1.5 px-3 text-right font-medium text-emerald-700 tabular-nums">
-                            Rp {item.amount.toLocaleString('id-ID')}
-                          </td>
+                      {/* Penerimaan Operasi */}
+                      {cashFlow.operatingActivities?.inflows?.length > 0 ? (
+                        cashFlow.operatingActivities.inflows.map((item, idx) => (
+                          <tr key={`op-in-${idx}`} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-3 pl-6 text-slate-800">
+                              + Penerimaan dari [{item.code}] {item.name}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-medium text-emerald-700 tabular-nums">
+                              Rp {item.amount.toLocaleString('id-ID')}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="py-1.5 px-3 pl-6 text-slate-400 italic">Tidak ada penerimaan operasi</td>
+                          <td className="py-1.5 px-3 text-right text-slate-400">Rp 0</td>
                         </tr>
-                      ))}
-                      <tr className="bg-emerald-50 font-bold text-emerald-950">
-                        <td className="py-2 px-3 text-right">Subtotal Kas Masuk:</td>
-                        <td className="py-2 px-3 text-right text-emerald-700 tabular-nums">
-                          + Rp {cashFlow.totalCashInflow.toLocaleString('id-ID')}
-                        </td>
-                      </tr>
-
-                      <tr className="bg-rose-50/50 font-bold text-rose-900 text-[11px] uppercase">
-                        <td colSpan={2} className="py-2 px-3">3. Arus Kas Keluar (Pengeluaran)</td>
-                      </tr>
-                      {cashFlow.outflowBreakdown.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="py-1.5 px-3 pl-6 text-slate-800">{item.name}</td>
-                          <td className="py-1.5 px-3 text-right font-medium text-rose-700 tabular-nums">
-                            Rp {item.amount.toLocaleString('id-ID')}
-                          </td>
+                      )}
+                      {/* Pengeluaran Operasi */}
+                      {cashFlow.operatingActivities?.outflows?.length > 0 ? (
+                        cashFlow.operatingActivities.outflows.map((item, idx) => (
+                          <tr key={`op-out-${idx}`} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-3 pl-6 text-slate-800">
+                              - Pembayaran [{item.code}] {item.name}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-medium text-rose-700 tabular-nums">
+                              (Rp {item.amount.toLocaleString('id-ID')})
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="py-1.5 px-3 pl-6 text-slate-400 italic">Tidak ada pengeluaran operasi</td>
+                          <td className="py-1.5 px-3 text-right text-slate-400">Rp 0</td>
                         </tr>
-                      ))}
-                      <tr className="bg-rose-50 font-bold text-rose-950">
-                        <td className="py-2 px-3 text-right">Subtotal Kas Keluar:</td>
-                        <td className="py-2 px-3 text-right text-rose-700 tabular-nums">
-                          - Rp {cashFlow.totalCashOutflow.toLocaleString('id-ID')}
+                      )}
+                      <tr className="bg-slate-50 font-bold text-slate-900 border-b border-slate-300">
+                        <td className="py-2 px-3 text-right">
+                          Arus Kas Bersih dari Aktivitas Operasi (A):
+                        </td>
+                        <td
+                          className={`py-2 px-3 text-right tabular-nums ${
+                            (cashFlow.operatingActivities?.netAmount || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {(cashFlow.operatingActivities?.netAmount || 0) >= 0 ? '+' : '-'} Rp {Math.abs(cashFlow.operatingActivities?.netAmount || 0).toLocaleString('id-ID')}
                         </td>
                       </tr>
 
+                      {/* 2. AKTIVITAS INVESTASI */}
+                      <tr className="bg-slate-100/90 font-bold text-slate-900 text-[11px] uppercase">
+                        <td colSpan={2} className="py-2 px-3">
+                          B. ARUS KAS DARI AKTIVITAS INVESTASI
+                        </td>
+                      </tr>
+                      {cashFlow.investingActivities?.outflows?.length > 0 ? (
+                        cashFlow.investingActivities.outflows.map((item, idx) => (
+                          <tr key={`inv-out-${idx}`} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-3 pl-6 text-slate-800">
+                              - Pembelian [{item.code}] {item.name}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-medium text-rose-700 tabular-nums">
+                              (Rp {item.amount.toLocaleString('id-ID')})
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="py-1.5 px-3 pl-6 text-slate-400 italic">Tidak ada pengeluaran investasi</td>
+                          <td className="py-1.5 px-3 text-right text-slate-400">Rp 0</td>
+                        </tr>
+                      )}
+                      <tr className="bg-slate-50 font-bold text-slate-900 border-b border-slate-300">
+                        <td className="py-2 px-3 text-right">
+                          Arus Kas Bersih dari Aktivitas Investasi (B):
+                        </td>
+                        <td
+                          className={`py-2 px-3 text-right tabular-nums ${
+                            (cashFlow.investingActivities?.netAmount || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {(cashFlow.investingActivities?.netAmount || 0) >= 0 ? '+' : '-'} Rp {Math.abs(cashFlow.investingActivities?.netAmount || 0).toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+
+                      {/* 3. AKTIVITAS PENDANAAN */}
+                      <tr className="bg-slate-100/90 font-bold text-slate-900 text-[11px] uppercase">
+                        <td colSpan={2} className="py-2 px-3">
+                          C. ARUS KAS DARI AKTIVITAS PENDANAAN
+                        </td>
+                      </tr>
+                      {cashFlow.financingActivities?.inflows?.length > 0 && (
+                        cashFlow.financingActivities.inflows.map((item, idx) => (
+                          <tr key={`fin-in-${idx}`} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-3 pl-6 text-slate-800">
+                              + Penerimaan [{item.code}] {item.name}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-medium text-emerald-700 tabular-nums">
+                              Rp {item.amount.toLocaleString('id-ID')}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                      {cashFlow.financingActivities?.outflows?.length > 0 && (
+                        cashFlow.financingActivities.outflows.map((item, idx) => (
+                          <tr key={`fin-out-${idx}`} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-3 pl-6 text-slate-800">
+                              - Penarikan Bagi Hasil / PADes [{item.code}] {item.name}
+                            </td>
+                            <td className="py-1.5 px-3 text-right font-medium text-rose-700 tabular-nums">
+                              (Rp {item.amount.toLocaleString('id-ID')})
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                      {(!cashFlow.financingActivities?.inflows?.length && !cashFlow.financingActivities?.outflows?.length) && (
+                        <tr>
+                          <td className="py-1.5 px-3 pl-6 text-slate-400 italic">Tidak ada transaksi pendanaan</td>
+                          <td className="py-1.5 px-3 text-right text-slate-400">Rp 0</td>
+                        </tr>
+                      )}
+                      <tr className="bg-slate-50 font-bold text-slate-900 border-b border-slate-300">
+                        <td className="py-2 px-3 text-right">
+                          Arus Kas Bersih dari Aktivitas Pendanaan (C):
+                        </td>
+                        <td
+                          className={`py-2 px-3 text-right tabular-nums ${
+                            (cashFlow.financingActivities?.netAmount || 0) >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {(cashFlow.financingActivities?.netAmount || 0) >= 0 ? '+' : '-'} Rp {Math.abs(cashFlow.financingActivities?.netAmount || 0).toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+
+                      {/* 4. REKONSILIASI KAS AKHIR */}
                       <tr className="bg-slate-100 font-bold text-slate-900">
-                        <td className="py-2 px-3">4. Arus Kas Bersih (Net Flow):</td>
-                        <td className="py-2 px-3 text-right tabular-nums">
-                          Rp {cashFlow.netCashFlow.toLocaleString('id-ID')}
+                        <td className="py-2 px-3">
+                          Kenaikan / (Penurunan) Kas Bersih Periode Berjalan (A + B + C)
+                        </td>
+                        <td
+                          className={`py-2 px-3 text-right tabular-nums ${
+                            cashFlow.netCashFlow >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {cashFlow.netCashFlow >= 0 ? '+' : '-'} Rp {Math.abs(cashFlow.netCashFlow).toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+
+                      <tr className="hover:bg-slate-50">
+                        <td className="py-2 px-3 text-slate-700">
+                          Saldo Kas & Setara Kas Awal Per 1 {months[selectedMonth]} {selectedYear}
+                        </td>
+                        <td className="py-2 px-3 text-right font-medium text-slate-900 tabular-nums">
+                          Rp {cashFlow.openingCashBalance.toLocaleString('id-ID')}
                         </td>
                       </tr>
                     </tbody>
                     <tfoot>
                       <tr className="bg-slate-900 text-white font-bold text-xs">
                         <td className="py-2.5 px-3 uppercase">
-                          SALDO KAS AKHIR PERIODE:
+                          SALDO KAS & BANK AKHIR PERIODE (TOTAL AKTIVA KAS NERACA):
                         </td>
                         <td className="py-2.5 px-3 text-right tabular-nums">
                           Rp {cashFlow.closingCashBalance.toLocaleString('id-ID')}

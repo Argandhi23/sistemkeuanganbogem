@@ -61,11 +61,29 @@ export interface GeneralLedgerResult {
   closingBalance: number;
 }
 
+export interface CashFlowActivityItem {
+  code: string;
+  name: string;
+  amount: number;
+}
+
+export interface CashFlowActivitySection {
+  title: string;
+  inflows: CashFlowActivityItem[];
+  totalInflow: number;
+  outflows: CashFlowActivityItem[];
+  totalOutflow: number;
+  netAmount: number;
+}
+
 export interface CashFlowResult {
   period: {
     startDate: string;
     endDate: string;
   };
+  operatingActivities: CashFlowActivitySection;
+  investingActivities: CashFlowActivitySection;
+  financingActivities: CashFlowActivitySection;
   openingCashBalance: number;
   totalCashInflow: number;
   inflowBreakdown: Array<{ name: string; amount: number }>;
@@ -451,14 +469,14 @@ export async function getGeneralLedger(
 }
 
 /**
- * 3. Rekap Arus Kas Sederhana (Cash Flow Summary)
+ * 3. Laporan Arus Kas Manajemen Profesional (SAK EMKM / PSAK 2)
  */
 export async function getCashFlowSummary(
   startDate: Date,
   endDate: Date
 ): Promise<CashFlowResult> {
-  const [priorTotals, periodAggregatesAssigned, periodAggregatesUnassigned] = await Promise.all([
-    // 1. Saldo Kas Awal
+  const [priorTotals, periodAggregatesAssigned, periodAggregatesUnassigned, accounts] = await Promise.all([
+    // 1. Saldo Kas Awal (sebelum startDate)
     prisma.transaction.groupBy({
       by: ['type'],
       where: {
@@ -486,13 +504,12 @@ export async function getCashFlowSummary(
       },
       _sum: { amount: true },
     }),
+
+    // 4. Master Akun
+    prisma.account.findMany(),
   ]);
 
-  // Master akun untuk mapping nama
-  const accounts = await prisma.account.findMany({
-    select: { id: true, name: true },
-  });
-  const accountNameMap = new Map(accounts.map((a) => [a.id, a.name]));
+  const accountMap = new Map(accounts.map((a) => [a.id, a]));
 
   let priorIncomeSum = 0;
   let priorExpenseSum = 0;
@@ -503,6 +520,14 @@ export async function getCashFlowSummary(
   }
   const openingCashBalance = priorIncomeSum - priorExpenseSum;
 
+  // 3 Pilar Aktivitas Manajemen
+  const opInflows: Record<string, CashFlowActivityItem> = {};
+  const opOutflows: Record<string, CashFlowActivityItem> = {};
+  const invInflows: Record<string, CashFlowActivityItem> = {};
+  const invOutflows: Record<string, CashFlowActivityItem> = {};
+  const finInflows: Record<string, CashFlowActivityItem> = {};
+  const finOutflows: Record<string, CashFlowActivityItem> = {};
+
   const inflowMap: Record<string, number> = {};
   let totalCashInflow = 0;
   const outflowMap: Record<string, number> = {};
@@ -510,29 +535,81 @@ export async function getCashFlowSummary(
 
   for (const item of periodAggregatesAssigned) {
     const amt = Number(item._sum.amount || 0);
-    const catName = (item.accountId && accountNameMap.get(item.accountId)) || 'Lainnya';
+    const acc = item.accountId ? accountMap.get(item.accountId) : undefined;
+    const code = acc?.code || '9999';
+    const name = acc?.name || 'Lain-lain';
 
     if (item.type === 'PEMASUKAN') {
-      inflowMap[catName] = (inflowMap[catName] || 0) + amt;
+      inflowMap[name] = (inflowMap[name] || 0) + amt;
       totalCashInflow += amt;
     } else {
-      outflowMap[catName] = (outflowMap[catName] || 0) + amt;
+      outflowMap[name] = (outflowMap[name] || 0) + amt;
       totalCashOutflow += amt;
+    }
+
+    // Klasifikasi Berdasarkan Kategori SAK EMKM:
+    // C. Aktivitas Pendanaan (Akun MODAL 3xxx)
+    if (acc?.category === AccountCategory.MODAL || code.startsWith('3')) {
+      if (item.type === 'PEMASUKAN') {
+        finInflows[code] = { code, name, amount: (finInflows[code]?.amount || 0) + amt };
+      } else {
+        finOutflows[code] = { code, name, amount: (finOutflows[code]?.amount || 0) + amt };
+      }
+    }
+    // B. Aktivitas Investasi (Akun Aset Tetap / Peralatan 1005)
+    else if (code === '1005' || code === '105' || name.toLowerCase().includes('peralatan')) {
+      if (item.type === 'PEMASUKAN') {
+        invInflows[code] = { code, name, amount: (invInflows[code]?.amount || 0) + amt };
+      } else {
+        invOutflows[code] = { code, name, amount: (invOutflows[code]?.amount || 0) + amt };
+      }
+    }
+    // A. Aktivitas Operasi (Pendapatan 4xxx & Beban 5xxx & Aset Lancar/Utang)
+    else {
+      if (item.type === 'PEMASUKAN') {
+        opInflows[code] = { code, name, amount: (opInflows[code]?.amount || 0) + amt };
+      } else {
+        opOutflows[code] = { code, name, amount: (opOutflows[code]?.amount || 0) + amt };
+      }
     }
   }
 
   for (const item of periodAggregatesUnassigned) {
     const amt = Number(item._sum.amount || 0);
-    const catName = item.category || 'Lainnya';
+    const catName = item.category || 'Operasional Lain-lain';
+    const code = '9999';
 
     if (item.type === 'PEMASUKAN') {
       inflowMap[catName] = (inflowMap[catName] || 0) + amt;
       totalCashInflow += amt;
+      opInflows[catName] = { code, name: catName, amount: (opInflows[catName]?.amount || 0) + amt };
     } else {
       outflowMap[catName] = (outflowMap[catName] || 0) + amt;
       totalCashOutflow += amt;
+      opOutflows[catName] = { code, name: catName, amount: (opOutflows[catName]?.amount || 0) + amt };
     }
   }
+
+  const opInList = Object.values(opInflows);
+  const opOutList = Object.values(opOutflows);
+  const totOpIn = opInList.reduce((acc, curr) => acc + curr.amount, 0);
+  const totOpOut = opOutList.reduce((acc, curr) => acc + curr.amount, 0);
+  const netOp = totOpIn - totOpOut;
+
+  const invInList = Object.values(invInflows);
+  const invOutList = Object.values(invOutflows);
+  const totInvIn = invInList.reduce((acc, curr) => acc + curr.amount, 0);
+  const totInvOut = invOutList.reduce((acc, curr) => acc + curr.amount, 0);
+  const netInv = totInvIn - totInvOut;
+
+  const finInList = Object.values(finInflows);
+  const finOutList = Object.values(finOutflows);
+  const totFinIn = finInList.reduce((acc, curr) => acc + curr.amount, 0);
+  const totFinOut = finOutList.reduce((acc, curr) => acc + curr.amount, 0);
+  const netFin = totFinIn - totFinOut;
+
+  const netCashFlow = netOp + netInv + netFin;
+  const closingCashBalance = openingCashBalance + netCashFlow;
 
   const inflowBreakdown = Object.entries(inflowMap).map(([name, amount]) => ({
     name,
@@ -544,13 +621,34 @@ export async function getCashFlowSummary(
     amount,
   }));
 
-  const netCashFlow = totalCashInflow - totalCashOutflow;
-  const closingCashBalance = openingCashBalance + netCashFlow;
-
   return {
     period: {
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0],
+    },
+    operatingActivities: {
+      title: 'A. Arus Kas dari Aktivitas Operasi',
+      inflows: opInList,
+      totalInflow: totOpIn,
+      outflows: opOutList,
+      totalOutflow: totOpOut,
+      netAmount: netOp,
+    },
+    investingActivities: {
+      title: 'B. Arus Kas dari Aktivitas Investasi',
+      inflows: invInList,
+      totalInflow: totInvIn,
+      outflows: invOutList,
+      totalOutflow: totInvOut,
+      netAmount: netInv,
+    },
+    financingActivities: {
+      title: 'C. Arus Kas dari Aktivitas Pendanaan',
+      inflows: finInList,
+      totalInflow: totFinIn,
+      outflows: finOutList,
+      totalOutflow: totFinOut,
+      netAmount: netFin,
     },
     openingCashBalance,
     totalCashInflow,
