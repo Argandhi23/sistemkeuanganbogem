@@ -45,47 +45,47 @@ const CATEGORY_METADATA: Record<
 > = {
   ASET: {
     label: 'Aset (Aktiva)',
-    prefix: '1xx',
+    prefix: '1xxx',
     bg: 'bg-blue-50',
     text: 'text-blue-800',
     border: 'border-blue-200',
-    desc: 'Kas, bank/rekening, piutang, persediaan bahan baku, dan peralatan catering.',
+    desc: 'Kas tunai, bank/rekening, piutang usaha, persediaan bahan baku, dan peralatan catering.',
   },
   KEWAJIBAN: {
     label: 'Kewajiban (Utang)',
-    prefix: '2xx',
+    prefix: '2xxx',
     bg: 'bg-amber-50',
     text: 'text-amber-800',
     border: 'border-amber-200',
-    desc: 'Utang usaha, pinjaman, dan kewajiban operasional lain.',
+    desc: 'Utang usaha, utang supplier belanja bahan, dan kewajiban operasional.',
   },
   MODAL: {
     label: 'Ekuitas (Modal)',
-    prefix: '3xx',
+    prefix: '3xxx',
     bg: 'bg-indigo-50',
     text: 'text-indigo-800',
     border: 'border-indigo-200',
-    desc: 'Modal usaha, laba ditahan, dan cadangan ekuitas unit usaha.',
+    desc: 'Penyertaan modal awal desa (APBDes), laba ditahan, dan cadangan ekuitas unit usaha.',
   },
   PENDAPATAN: {
     label: 'Pendapatan Usaha',
-    prefix: '4xx',
+    prefix: '4xxx',
     bg: 'bg-emerald-50',
     text: 'text-emerald-800',
     border: 'border-emerald-200',
-    desc: 'Pendapatan catering dan pendapatan usaha lain-lain.',
+    desc: 'Penjualan catering harian, box, prasmanan, snack, dan pendapatan usaha lain.',
   },
   BEBAN_OPERASIONAL: {
     label: 'Beban Operasional',
-    prefix: '5xx',
+    prefix: '5xxx',
     bg: 'bg-rose-50',
     text: 'text-rose-800',
     border: 'border-rose-200',
-    desc: 'Beban bahan baku, tenaga kerja, kemasan, transportasi, gas/listrik/air, dan lain-lain.',
+    desc: 'Bahan baku makanan, upah tenaga masak, kemasan, transportasi, gas elpiji & listrik.',
   },
   BEBAN_NON_OPERASIONAL: {
     label: 'Beban Non-Operasional',
-    prefix: '6xx',
+    prefix: '6xxx',
     bg: 'bg-slate-100',
     text: 'text-slate-800',
     border: 'border-slate-300',
@@ -346,7 +346,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[1xx] Aset</span>
+            <span>[1xxx] Aset</span>
             <Scale className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.aset}</div>
@@ -361,7 +361,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[2xx] Utang</span>
+            <span>[2xxx] Utang</span>
             <TrendingDown className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.kewajiban}</div>
@@ -376,7 +376,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[3xx] Modal</span>
+            <span>[3xxx] Modal</span>
             <ShieldCheck className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.modal}</div>
@@ -391,7 +391,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[4xx] Pendapatan</span>
+            <span>[4xxx] Pendapatan</span>
             <TrendingUp className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.pendapatan}</div>
@@ -406,7 +406,7 @@ export default function AccountsPage() {
           }`}
         >
           <div className="flex items-center justify-between text-xs font-semibold">
-            <span>[5xx] Beban</span>
+            <span>[5xxx] Beban</span>
             <BookOpen className="w-3.5 h-3.5 opacity-70" />
           </div>
           <div className="text-xl font-bold mt-1.5 tabular-nums">{stats.beban}</div>

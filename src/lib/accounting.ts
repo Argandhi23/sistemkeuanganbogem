@@ -110,6 +110,20 @@ export interface BalanceSheetResult {
   discrepancy: number;
 }
 
+export interface EquityStatementResult {
+  period: {
+    startDate: string;
+    endDate: string;
+  };
+  beginningCapital: number;
+  netIncome: number;
+  additionalCapital: number;
+  withdrawals: number;
+  netChange: number;
+  endingCapital: number;
+  retainedEarnings: number;
+}
+
 /**
  * 1. Laporan Laba Rugi (Income Statement) - Menggunakan Agregasi Database Cepat
  */
@@ -695,8 +709,9 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
 
   const currentPeriodProfit = totalRevenue - totalExpenses;
 
-  // 1. ASET LANCAR (Kas 101, Bank 102, Piutang 103, Persediaan 104)
+  // 1. ASET LANCAR (Kas 1001, Bank 1002, Piutang 1003, Persediaan 1004)
   const isFixedAsset = (acc: typeof accounts[0]) =>
+    acc.code === '1005' ||
     acc.code === '105' ||
     acc.code.startsWith('12') ||
     acc.name.toLowerCase().includes('peralatan') ||
@@ -708,17 +723,19 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
 
   const currentAssetItems: BalanceSheetItem[] = [];
   
-  // Jika akun 101 Kas terdaftar
-  const kasAccount = currentAssetAccounts.find((a) => a.code === '101' || a.name.toLowerCase() === 'kas');
+  // Jika akun 1001 Kas Tunai terdaftar
+  const kasAccount = currentAssetAccounts.find(
+    (a) => a.code === '1001' || a.code === '101' || a.name.toLowerCase().includes('kas')
+  );
   currentAssetItems.push({
     id: kasAccount?.id,
-    code: kasAccount?.code || '101',
-    name: kasAccount?.name || 'Kas',
+    code: kasAccount?.code || '1001',
+    name: kasAccount?.name || 'Kas Tunai',
     amount: netCashBalance > 0 ? netCashBalance : 0,
   });
 
   for (const acc of currentAssetAccounts) {
-    if (acc.code !== '101' && acc.code !== (kasAccount?.code || '101')) {
+    if (acc.code !== '1001' && acc.code !== '101' && acc.code !== (kasAccount?.code || '1001')) {
       currentAssetItems.push({
         id: acc.id,
         code: acc.code,
@@ -837,5 +854,72 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
     totalLiabilitiesAndEquity,
     isBalanced: Math.abs(discrepancy) < 1,
     discrepancy,
+  };
+}
+
+/**
+ * 5. Laporan Perubahan Modal / Ekuitas (Statement of Changes in Equity - SAK EMKM)
+ */
+export async function getEquityStatement(
+  startDate: Date,
+  endDate: Date
+): Promise<EquityStatementResult> {
+  // 1. Ambil Laba Rugi Periode Berjalan
+  const incomeStatement = await getIncomeStatement(startDate, endDate);
+  const netIncome = incomeStatement.netIncome;
+
+  // 2. Ambil Transaksi Modal Historis (Sebelum startDate untuk Saldo Awal) & Periode Berjalan
+  const [priorCapitalAgg, periodCapitalTrx] = await Promise.all([
+    prisma.transaction.groupBy({
+      by: ['accountId', 'type'],
+      where: {
+        account: { category: AccountCategory.MODAL },
+        date: { lt: startDate },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.transaction.findMany({
+      where: {
+        account: { category: AccountCategory.MODAL },
+        date: { gte: startDate, lte: endDate },
+      },
+      include: { account: true },
+    }),
+  ]);
+
+  // Hitung Modal Awal dari transaksi terdahulu
+  let beginningCapital = 0;
+  for (const item of priorCapitalAgg) {
+    const amt = Number(item._sum.amount || 0);
+    beginningCapital += item.type === 'PEMASUKAN' ? amt : -amt;
+  }
+
+  let additionalCapital = 0;
+  let withdrawals = 0;
+
+  for (const trx of periodCapitalTrx) {
+    const amt = Number(trx.amount);
+    if (trx.type === 'PEMASUKAN') {
+      additionalCapital += amt;
+    } else {
+      withdrawals += amt;
+    }
+  }
+
+  const netChange = netIncome + additionalCapital - withdrawals;
+  const endingCapital = beginningCapital + netChange;
+
+  return {
+    period: {
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0],
+    },
+    beginningCapital,
+    netIncome,
+    additionalCapital,
+    withdrawals,
+    netChange,
+    endingCapital,
+    retainedEarnings: beginningCapital,
   };
 }

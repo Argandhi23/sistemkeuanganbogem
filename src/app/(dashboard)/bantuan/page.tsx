@@ -23,7 +23,7 @@ export default function BantuanPage() {
       steps: [
         'Klik tombol "+ Catat Uang Masuk" atau "- Catat Uang Keluar" di Beranda atau menu Kas.',
         'Ketik nominal uang (angka otomatis berformat titik pemisah ribuan, contoh: 100.000).',
-        'Pilih pos akun keuangan yang sesuai (misal: [401] Pendapatan catering atau [501] Beban bahan baku).',
+        'Pilih pos akun keuangan yang sesuai (misal: [4001] Pendapatan Catering atau [5001] Beban Bahan Baku Makanan).',
         'Tentukan tanggal transaksi dan tulis rincian keterangan transaksi.',
         'Klik "Simpan Transaksi". Data langsung tersimpan aman ke database dan disinkronkan.',
       ],

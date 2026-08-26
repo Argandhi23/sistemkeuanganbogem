@@ -10,6 +10,7 @@ import {
   BookOpen,
   DollarSign,
   Scale,
+  ShieldCheck,
 } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -18,6 +19,7 @@ import {
   GeneralLedgerResult,
   CashFlowResult,
   BalanceSheetResult,
+  EquityStatementResult,
 } from '@/lib/accounting';
 
 interface AccountOption {
@@ -29,7 +31,7 @@ interface AccountOption {
 
 export default function LaporanPage() {
   const now = new Date();
-  const [activeTab, setActiveTab] = useState<'neraca' | 'laba-rugi' | 'buku-besar' | 'arus-kas'>('neraca');
+  const [activeTab, setActiveTab] = useState<'neraca' | 'laba-rugi' | 'perubahan-modal' | 'buku-besar' | 'arus-kas'>('neraca');
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
 
@@ -40,6 +42,7 @@ export default function LaporanPage() {
   // Report States
   const [balanceSheet, setBalanceSheet] = useState<BalanceSheetResult | null>(null);
   const [incomeStatement, setIncomeStatement] = useState<IncomeStatementResult | null>(null);
+  const [equityStatement, setEquityStatement] = useState<EquityStatementResult | null>(null);
   const [generalLedger, setGeneralLedger] = useState<GeneralLedgerResult | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlowResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,6 +88,12 @@ export default function LaporanPage() {
         if (res.ok) {
           const json = await res.json();
           setIncomeStatement(json.data);
+        }
+      } else if (activeTab === 'perubahan-modal') {
+        const res = await fetch(`/api/laporan/perubahan-modal?startDate=${start}&endDate=${end}`);
+        if (res.ok) {
+          const json = await res.json();
+          setEquityStatement(json.data);
         }
       } else if (activeTab === 'buku-besar') {
         if (selectedAccountId) {
@@ -207,6 +216,18 @@ export default function LaporanPage() {
             </button>
 
             <button
+              onClick={() => setActiveTab('perubahan-modal')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                activeTab === 'perubahan-modal'
+                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+              <span>3. Perubahan Modal</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('buku-besar')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'buku-besar'
@@ -215,7 +236,7 @@ export default function LaporanPage() {
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-              <span>3. Buku Besar</span>
+              <span>4. Buku Besar</span>
             </button>
 
             <button
@@ -227,7 +248,7 @@ export default function LaporanPage() {
               }`}
             >
               <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-              <span>4. Arus Kas</span>
+              <span>5. Arus Kas</span>
             </button>
           </div>
 
@@ -314,6 +335,7 @@ export default function LaporanPage() {
               <h4 className="text-xs font-bold text-slate-900 uppercase">
                 {activeTab === 'neraca' && `Laporan Posisi Keuangan (Neraca): Per ${new Date(selectedYear, selectedMonth + 1, 0).getDate()} ${months[selectedMonth]} ${selectedYear}`}
                 {activeTab === 'laba-rugi' && `Laporan Laba Rugi: ${months[selectedMonth]} ${selectedYear}`}
+                {activeTab === 'perubahan-modal' && `Laporan Perubahan Modal: ${months[selectedMonth]} ${selectedYear}`}
                 {activeTab === 'buku-besar' && `Buku Besar: ${generalLedger?.account?.name || ''} [${generalLedger?.account?.code || ''}] — ${months[selectedMonth]} ${selectedYear}`}
                 {activeTab === 'arus-kas' && `Rekapitulasi Arus Kas: ${months[selectedMonth]} ${selectedYear}`}
               </h4>
@@ -733,7 +755,126 @@ export default function LaporanPage() {
           </div>
         )}
 
-        {/* KONTEN TAB 2: BUKU BESAR PER AKUN */}
+        {/* KONTEN TAB 3: LAPORAN PERUBAHAN MODAL / EKUITAS */}
+        {activeTab === 'perubahan-modal' && (
+          <div className="space-y-5">
+            {isLoading ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                Memuat data Laporan Perubahan Modal...
+              </div>
+            ) : !equityStatement ? (
+              <div className="py-8 text-center text-slate-400 text-xs">Data tidak tersedia.</div>
+            ) : (
+              <div className="space-y-4">
+                {/* 3 Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Modal Awal Periode</div>
+                    <div className="text-lg font-bold text-slate-900 mt-0.5 tabular-nums">
+                      Rp {equityStatement.beginningCapital.toLocaleString('id-ID')}
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div className="text-[11px] font-semibold text-slate-500 uppercase">Laba Bersih Berjalan</div>
+                    <div
+                      className={`text-lg font-bold mt-0.5 tabular-nums ${
+                        equityStatement.netIncome >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                      }`}
+                    >
+                      {equityStatement.netIncome >= 0 ? '+' : '-'} Rp {Math.abs(equityStatement.netIncome).toLocaleString('id-ID')}
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-900 text-white rounded-xl">
+                    <div className="text-[11px] font-semibold text-slate-400 uppercase">Modal Akhir (Total Ekuitas)</div>
+                    <div className="text-lg font-bold text-white mt-0.5 tabular-nums">
+                      Rp {equityStatement.endingCapital.toLocaleString('id-ID')}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tabel Rincian Perubahan Modal */}
+                <div className="overflow-x-auto border border-slate-300 rounded-xl bg-white">
+                  <table className="w-full text-left border-collapse text-xs min-w-[500px]">
+                    <thead>
+                      <tr className="bg-slate-100 font-semibold text-slate-700 text-[11px] uppercase border-b border-slate-300">
+                        <th className="py-2.5 px-3">Uraian / Pos Perubahan Ekuitas</th>
+                        <th className="py-2.5 px-3 text-right w-44">Jumlah (Rp)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      <tr className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 font-semibold text-slate-900">
+                          1. Modal Awal Per 1 {months[selectedMonth]} {selectedYear}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-medium text-slate-900 tabular-nums">
+                          Rp {equityStatement.beginningCapital.toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+
+                      <tr className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 pl-6 text-slate-700">
+                          • Laba / (Rugi) Bersih Periode {months[selectedMonth]} {selectedYear}
+                        </td>
+                        <td
+                          className={`py-2.5 px-3 text-right font-semibold tabular-nums ${
+                            equityStatement.netIncome >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {equityStatement.netIncome >= 0 ? '+' : '-'} Rp {Math.abs(equityStatement.netIncome).toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+
+                      <tr className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 pl-6 text-slate-700">
+                          • Penambahan Modal / Investasi Baru BUMDes
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-medium text-slate-900 tabular-nums">
+                          + Rp {equityStatement.additionalCapital.toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+
+                      <tr className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 pl-6 text-slate-700">
+                          • Penarikan Modal / Bagi Hasil PADes Desa Bogem
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-medium text-rose-700 tabular-nums">
+                          - Rp {equityStatement.withdrawals.toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+
+                      <tr className="bg-slate-50 font-bold text-slate-900">
+                        <td className="py-2.5 px-3">
+                          2. Kenaikan / (Penurunan) Modal Bersih
+                        </td>
+                        <td
+                          className={`py-2.5 px-3 text-right tabular-nums ${
+                            equityStatement.netChange >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                          }`}
+                        >
+                          {equityStatement.netChange >= 0 ? '+' : '-'} Rp {Math.abs(equityStatement.netChange).toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-slate-900 text-white font-bold text-xs">
+                        <td className="py-2.5 px-3 uppercase">
+                          MODAL AKHIR PERIODE (TOTAL EKUITAS NERACA):
+                        </td>
+                        <td className="py-2.5 px-3 text-right tabular-nums">
+                          Rp {equityStatement.endingCapital.toLocaleString('id-ID')}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* KONTEN TAB 4: BUKU BESAR PER AKUN */}
         {activeTab === 'buku-besar' && (
           <div className="space-y-4">
             {isLoading ? (
