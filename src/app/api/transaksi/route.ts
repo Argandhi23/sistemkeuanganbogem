@@ -164,6 +164,45 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Anti-duplicate protection: Cek apakah transaksi identik baru saja dibuat dalam 10 detik terakhir oleh user yang sama
+    const recentDuplicate = await prisma.transaction.findFirst({
+      where: {
+        createdById: session.user.id,
+        type,
+        amount,
+        description,
+        date: new Date(date),
+        createdAt: {
+          gte: new Date(Date.now() - 10000),
+        },
+      },
+      select: {
+        id: true,
+        type: true,
+        category: true,
+        description: true,
+        amount: true,
+        date: true,
+        syncedToSheet: true,
+        account: {
+          select: { code: true, name: true },
+        },
+        createdBy: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+
+    if (recentDuplicate) {
+      return NextResponse.json(
+        {
+          message: 'Data transaksi berhasil disimpan',
+          data: recentDuplicate,
+        },
+        { status: 200 }
+      );
+    }
+
     // 1. Simpan ke Database
     const transaction = await prisma.transaction.create({
       data: {

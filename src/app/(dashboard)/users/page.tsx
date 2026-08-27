@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import {
   UserPlus,
@@ -34,6 +34,8 @@ export default function UsersPage() {
   const [toggleTarget, setToggleTarget] = useState<UserData | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const isSubmittingRef = useRef(false);
+  const isTogglingRef = useRef(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -62,6 +64,8 @@ export default function UsersPage() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isSubmitting) return;
+
     setFormError(null);
 
     if (!name.trim() || !email.trim() || !password) {
@@ -74,9 +78,10 @@ export default function UsersPage() {
       return;
     }
 
-    setIsSubmitting(true);
-
     try {
+      isSubmittingRef.current = true;
+      setIsSubmitting(true);
+
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -100,14 +105,16 @@ export default function UsersPage() {
       setFormError('Terjadi kesalahan koneksi');
     } finally {
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
       setTimeout(() => setToastMessage(null), 4000);
     }
   };
 
   const handleToggleStatus = async () => {
-    if (!toggleTarget) return;
+    if (!toggleTarget || isTogglingRef.current) return;
 
     try {
+      isTogglingRef.current = true;
       const res = await fetch(`/api/users/${toggleTarget.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -129,6 +136,7 @@ export default function UsersPage() {
     } catch {
       setToastMessage('❌ Terjadi kesalahan');
     } finally {
+      isTogglingRef.current = false;
       setTimeout(() => setToastMessage(null), 4000);
     }
   };

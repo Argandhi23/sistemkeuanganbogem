@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
@@ -29,6 +29,7 @@ function TambahTransaksiForm() {
   const isAdmin = session?.user?.role === 'ADMIN';
   const initialType = searchParams.get('type') === 'PENGELUARAN' ? 'PENGELUARAN' : 'PEMASUKAN';
 
+  const isSubmittingRef = useRef(false);
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>(initialType);
   const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(() => {
@@ -49,6 +50,26 @@ function TambahTransaksiForm() {
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  const getValidAccountsForType = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
+    // Saring keluar akun kas/bank karena kas/bank adalah akun pembukuan kas itu sendiri
+    const nonCash = accList.filter((a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102');
+
+    if (trxType === 'PEMASUKAN') {
+      return nonCash.filter(
+        (a) => a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.code === '1003'
+      );
+    } else {
+      return nonCash.filter(
+        (a) =>
+          a.category === 'BEBAN_OPERASIONAL' ||
+          a.category === 'BEBAN_NON_OPERASIONAL' ||
+          a.code === '1005' ||
+          a.category === 'KEWAJIBAN' ||
+          a.category === 'MODAL'
+      );
+    }
+  };
+
   useEffect(() => {
     if (clientAccountsCache && clientAccountsCache.length > 0) {
       return;
@@ -60,13 +81,14 @@ function TambahTransaksiForm() {
         clientAccountsCache = list;
         setAccounts(list);
 
-        const filtered = list.filter((a) =>
-          initialType === 'PEMASUKAN'
-            ? a.category === 'PENDAPATAN'
-            : a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL'
-        );
-        if (filtered.length > 0) {
-          setSelectedAccountId(filtered[0].id);
+        const validAccounts = getValidAccountsForType(initialType, list);
+        if (validAccounts.length > 0) {
+          // Default ke Pendapatan Catering (4001) atau Bahan Baku (5001) jika ada
+          const preferred =
+            initialType === 'PEMASUKAN'
+              ? validAccounts.find((a) => a.code === '4001') || validAccounts[0]
+              : validAccounts.find((a) => a.code === '5001') || validAccounts[0];
+          setSelectedAccountId(preferred.id);
         }
       })
       .catch((err) => console.error('Error fetching accounts:', err));
@@ -74,24 +96,22 @@ function TambahTransaksiForm() {
 
   const handleTypeChange = (newType: 'PEMASUKAN' | 'PENGELUARAN') => {
     setType(newType);
-    const filtered = accounts.filter((a) =>
-      newType === 'PEMASUKAN'
-        ? a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.category === 'ASET'
-        : a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL' || a.category === 'ASET' || a.category === 'KEWAJIBAN'
-    );
-    if (filtered.length > 0) {
-      setSelectedAccountId(filtered[0].id);
+    const valid = getValidAccountsForType(newType, accounts);
+    if (valid.length > 0) {
+      const preferred =
+        newType === 'PEMASUKAN'
+          ? valid.find((a) => a.code === '4001') || valid[0]
+          : valid.find((a) => a.code === '5001') || valid[0];
+      setSelectedAccountId(preferred.id);
     }
   };
 
-  const filteredAccounts = accounts.filter((a) =>
-    type === 'PEMASUKAN'
-      ? a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.category === 'ASET'
-      : a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL' || a.category === 'ASET' || a.category === 'KEWAJIBAN'
-  );
+  const filteredAccounts = getValidAccountsForType(type, accounts);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isLoading) return;
+
     setError(null);
 
     const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
@@ -107,6 +127,7 @@ function TambahTransaksiForm() {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -134,6 +155,7 @@ function TambahTransaksiForm() {
       setError('Terjadi kesalahan jaringan saat menyimpan data');
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
@@ -32,6 +32,8 @@ export default function EditTransaksiPage() {
   const isAdmin = session?.user?.role === 'ADMIN';
   const currentUserId = session?.user?.id;
 
+  const isSubmittingRef = useRef(false);
+  const isDeletingRef = useRef(false);
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>('PEMASUKAN');
   const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
@@ -87,26 +89,43 @@ export default function EditTransaksiPage() {
       .finally(() => setIsFetching(false));
   }, [id]);
 
-  const handleTypeChange = (newType: 'PEMASUKAN' | 'PENGELUARAN') => {
-    setType(newType);
-    const filtered = accounts.filter((a) =>
-      newType === 'PEMASUKAN'
-        ? a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.category === 'ASET'
-        : a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL' || a.category === 'ASET' || a.category === 'KEWAJIBAN'
-    );
-    if (filtered.length > 0) {
-      setSelectedAccountId(filtered[0].id);
+  const getValidAccountsForType = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
+    const nonCash = accList.filter((a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102');
+
+    if (trxType === 'PEMASUKAN') {
+      return nonCash.filter(
+        (a) => a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.code === '1003'
+      );
+    } else {
+      return nonCash.filter(
+        (a) =>
+          a.category === 'BEBAN_OPERASIONAL' ||
+          a.category === 'BEBAN_NON_OPERASIONAL' ||
+          a.code === '1005' ||
+          a.category === 'KEWAJIBAN' ||
+          a.category === 'MODAL'
+      );
     }
   };
 
-  const filteredAccounts = accounts.filter((a) =>
-    type === 'PEMASUKAN'
-      ? a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.category === 'ASET'
-      : a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL' || a.category === 'ASET' || a.category === 'KEWAJIBAN'
-  );
+  const handleTypeChange = (newType: 'PEMASUKAN' | 'PENGELUARAN') => {
+    setType(newType);
+    const valid = getValidAccountsForType(newType, accounts);
+    if (valid.length > 0) {
+      const preferred =
+        newType === 'PEMASUKAN'
+          ? valid.find((a) => a.code === '4001') || valid[0]
+          : valid.find((a) => a.code === '5001') || valid[0];
+      setSelectedAccountId(preferred.id);
+    }
+  };
+
+  const filteredAccounts = getValidAccountsForType(type, accounts);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isLoading) return;
+
     setError(null);
 
     const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
@@ -122,6 +141,7 @@ export default function EditTransaksiPage() {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -149,11 +169,15 @@ export default function EditTransaksiPage() {
       setError('Terjadi kesalahan jaringan');
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
   const handleDelete = async () => {
+    if (isDeletingRef.current || isDeleting) return;
+
     try {
+      isDeletingRef.current = true;
       setIsDeleting(true);
       const res = await fetch(`/api/transaksi/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -168,6 +192,7 @@ export default function EditTransaksiPage() {
       setShowDeleteModal(false);
     } finally {
       setIsDeleting(false);
+      isDeletingRef.current = false;
     }
   };
 

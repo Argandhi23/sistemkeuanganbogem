@@ -16,9 +16,9 @@ interface CurrencyInputProps {
 }
 
 export function formatRupiahDisplay(value: number | string): string {
-  if (value === '' || value === undefined || value === null) return '';
+  if (value === '' || value === undefined || value === null || value === 0 || value === '0') return '';
   const num = typeof value === 'string' ? parseInt(value.replace(/\D/g, ''), 10) : value;
-  if (isNaN(num)) return '';
+  if (isNaN(num) || num === 0) return '';
   return num.toLocaleString('id-ID');
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import {
   Printer,
@@ -29,9 +29,17 @@ interface AccountOption {
   category: string;
 }
 
+const MONTHS = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
+const YEARS = [2024, 2025, 2026, 2027];
+
 export default function LaporanPage() {
   const now = new Date();
   const [activeTab, setActiveTab] = useState<'neraca' | 'laba-rugi' | 'perubahan-modal' | 'buku-besar' | 'arus-kas'>('neraca');
+  const [periodType, setPeriodType] = useState<'month' | 'year' | 'all'>('month');
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
 
@@ -48,15 +56,33 @@ export default function LaporanPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Sheets Sync State
+  const isSyncingRef = useRef(false);
   const [isSyncingSheet, setIsSyncingSheet] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
-  const months = [
-    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
-  ];
-
-  const years = [2024, 2025, 2026, 2027];
+  const getDateRange = useCallback(() => {
+    if (periodType === 'all') {
+      return {
+        start: '2020-01-01',
+        end: `${selectedYear}-12-31`,
+        label: `Semua Periode Transaksi (s/d ${selectedYear})`,
+      };
+    }
+    if (periodType === 'year') {
+      return {
+        start: `${selectedYear}-01-01`,
+        end: `${selectedYear}-12-31`,
+        label: `Tahun ${selectedYear} (1 Tahun Penuh)`,
+      };
+    }
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const mm = String(selectedMonth + 1).padStart(2, '0');
+    return {
+      start: `${selectedYear}-${mm}-01`,
+      end: `${selectedYear}-${mm}-${String(lastDay).padStart(2, '0')}`,
+      label: `${MONTHS[selectedMonth]} ${selectedYear}`,
+    };
+  }, [periodType, selectedMonth, selectedYear]);
 
   useEffect(() => {
     fetch('/api/accounts')
@@ -65,7 +91,9 @@ export default function LaporanPage() {
         const list = json.data || [];
         setAccounts(list);
         if (list.length > 0) {
-          setSelectedAccountId((prev) => (prev ? prev : list[0].id));
+          // Default ke Kas Tunai (1001) jika ada, agar buku kas umum langsung tampil
+          const kasAcc = list.find((a: AccountOption) => a.code === '1001') || list[0];
+          setSelectedAccountId((prev) => (prev ? prev : kasAcc.id));
         }
       })
       .catch((err) => console.error('Error fetching accounts:', err));
@@ -74,8 +102,7 @@ export default function LaporanPage() {
   const fetchReportData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const start = new Date(selectedYear, selectedMonth, 1).toISOString().split('T')[0];
-      const end = new Date(selectedYear, selectedMonth + 1, 0).toISOString().split('T')[0];
+      const { start, end } = getDateRange();
 
       if (activeTab === 'neraca') {
         const res = await fetch(`/api/laporan/neraca?asOfDate=${end}`);
@@ -117,32 +144,40 @@ export default function LaporanPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeTab, selectedMonth, selectedYear, selectedAccountId]);
+  }, [activeTab, selectedAccountId, getDateRange]);
 
   useEffect(() => {
     fetchReportData();
   }, [fetchReportData]);
 
   const handleSyncToSheets = async () => {
+    if (isSyncingRef.current || isSyncingSheet) return;
+
     try {
+      isSyncingRef.current = true;
       setIsSyncingSheet(true);
       setSyncFeedback(null);
       const res = await fetch('/api/laporan/sync-sheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year: selectedYear, month: selectedMonth }),
+        body: JSON.stringify({
+          year: selectedYear,
+          month: periodType === 'month' ? selectedMonth : undefined,
+          periodType,
+        }),
       });
       const json = await res.json();
       if (res.ok) {
-        setSyncFeedback(`✅ ${json.message || 'Laporan Bulanan & Neraca berhasil disinkronkan ke Google Sheets'}`);
+        setSyncFeedback(`✅ ${json.message || 'Seluruh Laporan Keuangan Berhasil Disinkronkan ke Google Sheets!'}`);
       } else {
-        setSyncFeedback(`❌ ${json.error || 'Gagal sinkronisasi'}`);
+        setSyncFeedback(`❌ ${json.error || 'Gagal sinkronisasi ke Google Sheets'}`);
       }
     } catch {
       setSyncFeedback('❌ Gagal terhubung ke server');
     } finally {
       setIsSyncingSheet(false);
-      setTimeout(() => setSyncFeedback(null), 4000);
+      isSyncingRef.current = false;
+      setTimeout(() => setSyncFeedback(null), 5000);
     }
   };
 
@@ -150,13 +185,15 @@ export default function LaporanPage() {
     window.print();
   };
 
+  const currentRange = getDateRange();
+
   return (
     <div className="space-y-5 max-w-5xl mx-auto">
       {/* Header Halaman (Tidak dicetak) */}
       <div className="no-print space-y-3">
         <PageHeader
           title="Laporan Keuangan"
-          description="Laporan Laba Rugi, Buku Besar, dan Arus Kas unit Catering BUMDes Bogem"
+          description="Laporan Laba Rugi, Posisi Keuangan (Neraca), Arus Kas, Perubahan Modal, dan Buku Besar BUMDes Bogem"
           action={
             <div className="flex flex-wrap items-center gap-2">
               <BigButton
@@ -164,10 +201,10 @@ export default function LaporanPage() {
                 size="normal"
                 onClick={handleSyncToSheets}
                 isLoading={isSyncingSheet}
-                loadingText="Mengirim..."
+                loadingText="Mengirim ke Sheets..."
                 icon={<FileSpreadsheet className="w-4 h-4 text-emerald-600" />}
               >
-                Sync Sheets
+                Sync Semua Laporan ke Sheets
               </BigButton>
               <BigButton
                 variant="primary"
@@ -188,7 +225,7 @@ export default function LaporanPage() {
         )}
 
         {/* Tab Navigasi & Filter Periode */}
-        <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200/80 shadow-subtle flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200/80 shadow-subtle flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Tab Selector Buttons */}
           <div className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg overflow-x-auto">
             <button
@@ -200,7 +237,7 @@ export default function LaporanPage() {
               }`}
             >
               <Scale className="w-3.5 h-3.5 text-indigo-600" />
-              <span>1. Neraca Keuangan</span>
+              <span>1. Neraca</span>
             </button>
 
             <button
@@ -216,6 +253,18 @@ export default function LaporanPage() {
             </button>
 
             <button
+              onClick={() => setActiveTab('arus-kas')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+                activeTab === 'arus-kas'
+                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+              <span>3. Arus Kas</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('perubahan-modal')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
                 activeTab === 'perubahan-modal'
@@ -224,7 +273,7 @@ export default function LaporanPage() {
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-              <span>3. Perubahan Modal</span>
+              <span>4. Perubahan Modal</span>
             </button>
 
             <button
@@ -236,48 +285,71 @@ export default function LaporanPage() {
               }`}
             >
               <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-              <span>4. Buku Besar</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('arus-kas')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
-                activeTab === 'arus-kas'
-                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <DollarSign className="w-3.5 h-3.5 text-amber-600" />
-              <span>5. Arus Kas</span>
+              <span>5. Buku Besar</span>
             </button>
           </div>
 
-          {/* Period Selector */}
-          <div className="flex items-center gap-2">
-            <Calendar className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
-              className="h-8 px-2.5 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none"
-            >
-              {months.map((m, idx) => (
-                <option key={idx} value={idx}>
-                  {m}
-                </option>
-              ))}
-            </select>
+          {/* Period Mode & Selector */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setPeriodType('month')}
+                className={`px-2.5 py-1 rounded-md transition-colors ${
+                  periodType === 'month' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Bulanan
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeriodType('year')}
+                className={`px-2.5 py-1 rounded-md transition-colors ${
+                  periodType === 'year' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                1 Tahun
+              </button>
+              <button
+                type="button"
+                onClick={() => setPeriodType('all')}
+                className={`px-2.5 py-1 rounded-md transition-colors ${
+                  periodType === 'all' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Semua
+              </button>
+            </div>
 
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-              className="h-8 px-2.5 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none"
-            >
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
+
+              {periodType === 'month' && (
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                  className="h-8 px-2.5 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none"
+                >
+                  {MONTHS.map((m, idx) => (
+                    <option key={idx} value={idx}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                className="h-8 px-2.5 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none"
+              >
+                {YEARS.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -285,7 +357,7 @@ export default function LaporanPage() {
         {activeTab === 'buku-besar' && (
           <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-subtle flex items-center gap-2.5">
             <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
-              Akun:
+              Akun Buku Besar:
             </span>
             <select
               value={selectedAccountId}
@@ -294,7 +366,7 @@ export default function LaporanPage() {
             >
               {accounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>
-                  [{acc.code}] {acc.name} ({acc.category})
+                  [{acc.code}] {acc.name} ({acc.category}) {acc.code === '1001' ? '— Buku Kas Umum Utama' : ''}
                 </option>
               ))}
             </select>
@@ -333,11 +405,11 @@ export default function LaporanPage() {
           <div className="mt-3 text-center">
             <div className="inline-block bg-slate-100 print:bg-transparent px-3 py-1 rounded-md border border-slate-300">
               <h4 className="text-xs font-bold text-slate-900 uppercase">
-                {activeTab === 'neraca' && `Laporan Posisi Keuangan (Neraca): Per ${new Date(selectedYear, selectedMonth + 1, 0).getDate()} ${months[selectedMonth]} ${selectedYear}`}
-                {activeTab === 'laba-rugi' && `Laporan Laba Rugi: ${months[selectedMonth]} ${selectedYear}`}
-                {activeTab === 'perubahan-modal' && `Laporan Perubahan Modal: ${months[selectedMonth]} ${selectedYear}`}
-                {activeTab === 'buku-besar' && `Buku Besar: ${generalLedger?.account?.name || ''} [${generalLedger?.account?.code || ''}] — ${months[selectedMonth]} ${selectedYear}`}
-                {activeTab === 'arus-kas' && `Rekapitulasi Arus Kas: ${months[selectedMonth]} ${selectedYear}`}
+                {activeTab === 'neraca' && `Laporan Posisi Keuangan (Neraca): Per ${currentRange.label}`}
+                {activeTab === 'laba-rugi' && `Laporan Laba Rugi: Periode ${currentRange.label}`}
+                {activeTab === 'arus-kas' && `Laporan Arus Kas: Periode ${currentRange.label}`}
+                {activeTab === 'perubahan-modal' && `Laporan Perubahan Modal: Periode ${currentRange.label}`}
+                {activeTab === 'buku-besar' && `Buku Besar: ${generalLedger?.account?.name || ''} [${generalLedger?.account?.code || ''}] — Periode ${currentRange.label}`}
               </h4>
             </div>
           </div>
@@ -806,7 +878,7 @@ export default function LaporanPage() {
                     <tbody className="divide-y divide-slate-200">
                       <tr className="hover:bg-slate-50">
                         <td className="py-2.5 px-3 font-semibold text-slate-900">
-                          1. Modal Awal Per 1 {months[selectedMonth]} {selectedYear}
+                          1. Modal Awal Periode ({currentRange.label})
                         </td>
                         <td className="py-2.5 px-3 text-right font-medium text-slate-900 tabular-nums">
                           Rp {equityStatement.beginningCapital.toLocaleString('id-ID')}
@@ -815,7 +887,7 @@ export default function LaporanPage() {
 
                       <tr className="hover:bg-slate-50">
                         <td className="py-2.5 px-3 pl-6 text-slate-700">
-                          • Laba / (Rugi) Bersih Periode {months[selectedMonth]} {selectedYear}
+                          • Laba / (Rugi) Bersih Periode {currentRange.label}
                         </td>
                         <td
                           className={`py-2.5 px-3 text-right font-semibold tabular-nums ${
@@ -915,7 +987,7 @@ export default function LaporanPage() {
                     <tbody className="divide-y divide-slate-200">
                       <tr className="bg-slate-50/80 font-medium text-slate-600">
                         <td className="py-2 px-3" colSpan={3}>
-                          SALDO AWAL (SEBELUM {months[selectedMonth].toUpperCase()} {selectedYear})
+                          SALDO AWAL (SEBELUM PERIODE {currentRange.label.toUpperCase()})
                         </td>
                         <td className="py-2 px-3 text-right">-</td>
                         <td className="py-2 px-3 text-right">-</td>
@@ -1191,7 +1263,7 @@ export default function LaporanPage() {
 
                       <tr className="hover:bg-slate-50">
                         <td className="py-2 px-3 text-slate-700">
-                          Saldo Kas & Setara Kas Awal Per 1 {months[selectedMonth]} {selectedYear}
+                          Saldo Kas & Setara Kas Awal Periode ({currentRange.label})
                         </td>
                         <td className="py-2 px-3 text-right font-medium text-slate-900 tabular-nums">
                           Rp {cashFlow.openingCashBalance.toLocaleString('id-ID')}

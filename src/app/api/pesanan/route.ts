@@ -123,6 +123,43 @@ export async function POST(req: NextRequest) {
     const { customerName, customerPhone, eventDate, menuDetail, portion, totalPrice, status, notes } =
       parsed.data;
 
+    // Anti-duplicate protection: Cek apakah pesanan identik baru saja dibuat dalam 10 detik terakhir oleh user yang sama
+    const recentDuplicate = await prisma.cateringOrder.findFirst({
+      where: {
+        createdById: session.user.id,
+        customerName,
+        totalPrice,
+        portion,
+        eventDate: new Date(eventDate),
+        createdAt: {
+          gte: new Date(Date.now() - 10000),
+        },
+      },
+      select: {
+        id: true,
+        customerName: true,
+        customerPhone: true,
+        eventDate: true,
+        menuDetail: true,
+        portion: true,
+        totalPrice: true,
+        status: true,
+        notes: true,
+        syncedToSheet: true,
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+
+    if (recentDuplicate) {
+      return NextResponse.json(
+        {
+          message: 'Data pesanan catering berhasil disimpan',
+          data: recentDuplicate,
+        },
+        { status: 200 }
+      );
+    }
+
     // 1. Simpan ke Database
     const order = await prisma.cateringOrder.create({
       data: {

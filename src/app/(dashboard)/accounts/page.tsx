@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import {
   BookOpen,
@@ -120,6 +120,8 @@ export default function AccountsPage() {
     isActive: true,
   });
 
+  const isSubmittingRef = useRef(false);
+  const isDeletingRef = useRef(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -184,6 +186,8 @@ export default function AccountsPage() {
   // Handle Form Submit (Create / Edit)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isSubmitting) return;
+
     setFormError(null);
 
     if (!formData.code.trim()) {
@@ -196,6 +200,7 @@ export default function AccountsPage() {
     }
 
     try {
+      isSubmittingRef.current = true;
       setIsSubmitting(true);
       const url = isEditing && editingId ? `/api/accounts/${editingId}` : '/api/accounts';
       const method = isEditing ? 'PATCH' : 'POST';
@@ -224,14 +229,16 @@ export default function AccountsPage() {
       setFormError('Terjadi kesalahan jaringan');
     } finally {
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
     }
   };
 
   // Handle Delete / Deactivate
   const handleDelete = async () => {
-    if (!deleteConfirmAccount) return;
+    if (!deleteConfirmAccount || isDeletingRef.current || isDeleting) return;
 
     try {
+      isDeletingRef.current = true;
       setIsDeleting(true);
       const res = await fetch(`/api/accounts/${deleteConfirmAccount.id}`, {
         method: 'DELETE',
@@ -249,6 +256,7 @@ export default function AccountsPage() {
       showFeedback('error', 'Terjadi kesalahan jaringan');
     } finally {
       setIsDeleting(false);
+      isDeletingRef.current = false;
     }
   };
 

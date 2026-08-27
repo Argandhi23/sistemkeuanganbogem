@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
@@ -58,6 +58,7 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
+  const isSyncingRef = useRef(false);
   const [data, setData] = useState<DashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -83,7 +84,10 @@ export default function DashboardPage() {
   }, []);
 
   const handleSyncRetry = async () => {
+    if (isSyncingRef.current || isSyncing) return;
+
     try {
+      isSyncingRef.current = true;
       setIsSyncing(true);
       setSyncMessage(null);
       const res = await fetch('/api/sync/retry', { method: 'POST' });
@@ -98,6 +102,7 @@ export default function DashboardPage() {
       setSyncMessage('Terjadi kesalahan saat sinkronisasi');
     } finally {
       setIsSyncing(false);
+      isSyncingRef.current = false;
       setTimeout(() => setSyncMessage(null), 4000);
     }
   };

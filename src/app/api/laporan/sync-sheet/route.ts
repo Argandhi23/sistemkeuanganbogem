@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
-import { syncMonthlyFinancialReportToSheet, syncBalanceSheetToSheet } from '@/lib/googleSheets';
+import { syncAllFinancialReportsToSheet } from '@/lib/googleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,27 +12,22 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { year, month } = body;
+    const { year, month, periodType } = body;
 
-    const [monthlyResult, balanceSheetResult] = await Promise.all([
-      syncMonthlyFinancialReportToSheet(
-        typeof year === 'number' ? year : undefined,
-        typeof month === 'number' ? month : undefined
-      ),
-      syncBalanceSheetToSheet(
-        typeof year === 'number' && typeof month === 'number'
-          ? new Date(year, month + 1, 0)
-          : undefined
-      ),
-    ]);
+    const result = await syncAllFinancialReportsToSheet({
+      year: typeof year === 'number' ? year : undefined,
+      month: typeof month === 'number' ? month : undefined,
+      periodType,
+    });
 
-    if (monthlyResult.success || balanceSheetResult.success) {
+    if (result.success) {
       return NextResponse.json({
-        message: 'Laporan Bulanan & Neraca Keuangan berhasil disinkronkan ke Google Sheets',
+        message: 'Seluruh lembar laporan (Laba Rugi, Neraca, Arus Kas, Perubahan Modal, dan Buku Besar Kas) berhasil disinkronkan ke Google Sheets!',
+        details: result.details,
       });
     } else {
       return NextResponse.json(
-        { error: 'Gagal menyinkronkan laporan ke Google Sheets. Periksa koneksi atau kredensial.' },
+        { error: 'Gagal menyinkronkan seluruh laporan ke Google Sheets. Periksa koneksi internet atau kredensial API.' },
         { status: 500 }
       );
     }
@@ -44,3 +39,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+

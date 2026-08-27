@@ -143,11 +143,29 @@ export interface EquityStatementResult {
 }
 
 /**
- * 1. Laporan Laba Rugi (Income Statement) - Menggunakan Agregasi Database Cepat
+ * Helper untuk normalisasi tanggal awal & akhir periode
  */
-export async function getIncomeStatement(startDate: Date, endDate: Date): Promise<IncomeStatementResult> {
+function normalizeDateRange(startDate: Date | string, endDate: Date | string) {
+  const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+
+  return { start, end };
+}
+
+/**
+ * 1. Laporan Laba Rugi (Income Statement) - Agregasi Presisi Berstandar SAK EMKM
+ */
+export async function getIncomeStatement(
+  startDateInput: Date | string,
+  endDateInput: Date | string
+): Promise<IncomeStatementResult> {
+  const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
+
   const [assignedAggregates, unassignedAggregates, allAccounts] = await Promise.all([
-    // Agregasi untuk transaksi yang memiliki accountId
+    // 1. Agregasi untuk transaksi yang memiliki accountId
     prisma.transaction.groupBy({
       by: ['accountId', 'type'],
       where: {
@@ -158,7 +176,7 @@ export async function getIncomeStatement(startDate: Date, endDate: Date): Promis
       _count: { _all: true },
     }),
 
-    // Agregasi untuk transaksi legacy tanpa accountId
+    // 2. Agregasi untuk transaksi legacy / tanpa accountId
     prisma.transaction.groupBy({
       by: ['category', 'type'],
       where: {
@@ -169,7 +187,7 @@ export async function getIncomeStatement(startDate: Date, endDate: Date): Promis
       _count: { _all: true },
     }),
 
-    // Master akun
+    // 3. Master akun aktif
     prisma.account.findMany({
       where: { isActive: true },
       select: {
@@ -182,53 +200,99 @@ export async function getIncomeStatement(startDate: Date, endDate: Date): Promis
     }),
   ]);
 
-  // Peta total per akun
-  const accountTotals: Record<string, { total: number; count: number; acc: typeof allAccounts[0] }> = {};
+  const accountMap = new Map(allAccounts.map((a) => [a.id, a]));
+  const accountTotals: Record<string, { total: number; count: number; acc: (typeof allAccounts)[0] }> = {};
+
   for (const acc of allAccounts) {
     accountTotals[acc.id] = { total: 0, count: 0, acc };
   }
 
+  let unassignedOperatingIncome = 0;
+  let unassignedOperatingExpense = 0;
+
+  // Proses transaksi yang memiliki accountId
   for (const item of assignedAggregates) {
-    if (item.accountId && accountTotals[item.accountId]) {
-      accountTotals[item.accountId].total += Number(item._sum.amount || 0);
-      accountTotals[item.accountId].count += item._count._all;
+    if (!item.accountId) continue;
+    const acc = accountMap.get(item.accountId);
+    const amt = Number(item._sum.amount || 0);
+    const count = item._count._all;
+
+    if (!acc) {
+      if (item.type === 'PEMASUKAN') unassignedOperatingIncome += amt;
+      else unassignedOperatingExpense += amt;
+      continue;
     }
+
+    // Jika akun terdaftar adalah akun pendapatan atau beban
+    if (
+      acc.category === AccountCategory.PENDAPATAN ||
+      acc.category === AccountCategory.BEBAN_OPERASIONAL ||
+      acc.category === AccountCategory.BEBAN_NON_OPERASIONAL
+    ) {
+      accountTotals[acc.id].total += amt;
+      accountTotals[acc.id].count += count;
+    }
+    // Jika transaksi dicatat menggunakan akun Kas Tunai (ASET) sebagai pos, jangan hilangkan dari Laba Rugi
+    else if (acc.code === '1001' || acc.code === '101' || acc.name.toLowerCase().includes('kas')) {
+      if (item.type === 'PEMASUKAN') {
+        const cateringAcc = allAccounts.find((a) => a.code === '4001' || a.category === AccountCategory.PENDAPATAN);
+        if (cateringAcc && accountTotals[cateringAcc.id]) {
+          accountTotals[cateringAcc.id].total += amt;
+          accountTotals[cateringAcc.id].count += count;
+        } else {
+          unassignedOperatingIncome += amt;
+        }
+      } else {
+        const opexAcc = allAccounts.find((a) => a.code === '5006' || a.category === AccountCategory.BEBAN_OPERASIONAL);
+        if (opexAcc && accountTotals[opexAcc.id]) {
+          accountTotals[opexAcc.id].total += amt;
+          accountTotals[opexAcc.id].count += count;
+        } else {
+          unassignedOperatingExpense += amt;
+        }
+      }
+    }
+    // Jika akun MODAL (3001/3002) atau KEWAJIBAN (2001) atau ASET TETAP (1005), itu adalah transaksi neraca non-operasional
   }
 
-  // Matching fallback untuk data unassigned
-  let unassignedIncome = 0;
-  let unassignedExpense = 0;
-
+  // Proses transaksi unassigned (kategori teks bebas)
   for (const item of unassignedAggregates) {
     const amt = Number(item._sum.amount || 0);
     const count = item._count._all;
     const catLower = (item.category || '').toLowerCase().trim();
 
+    // Matching cerdas dengan nama akun
     const matched = allAccounts.find((a) => {
       const accLower = a.name.toLowerCase();
       return (
         accLower === catLower ||
         accLower.includes(catLower) ||
         catLower.includes(accLower) ||
-        (catLower.includes('catering') && (a.code === '401' || a.code === '4001')) ||
-        (catLower.includes('bahan baku') && (a.code === '501' || a.code === '5001')) ||
-        (catLower.includes('tenaga kerja') && a.code === '502') ||
-        (catLower.includes('upah') && a.code === '502') ||
-        (catLower.includes('kemasan') && (a.code === '503' || a.code === '5002')) ||
-        (catLower.includes('transportasi') && (a.code === '504' || a.code === '5004')) ||
-        (catLower.includes('gas') && (a.code === '505' || a.code === '5005')) ||
-        (catLower.includes('listrik') && (a.code === '505' || a.code === '5005')) ||
-        (catLower.includes('operasional') && (a.code === '505' || a.code === '506'))
+        (catLower.includes('catering') && (a.code === '4001' || a.code === '401')) ||
+        (catLower.includes('bahan baku') && (a.code === '5001' || a.code === '501')) ||
+        (catLower.includes('tenaga kerja') && (a.code === '5002' || a.code === '502')) ||
+        (catLower.includes('upah') && (a.code === '5002' || a.code === '502')) ||
+        (catLower.includes('kemasan') && (a.code === '5003' || a.code === '503')) ||
+        (catLower.includes('transportasi') && (a.code === '5004' || a.code === '504')) ||
+        (catLower.includes('gas') && (a.code === '5005' || a.code === '505')) ||
+        (catLower.includes('listrik') && (a.code === '5005' || a.code === '505')) ||
+        (catLower.includes('operasional') && (a.code === '5006' || a.code === '506'))
       );
     });
 
     if (matched && accountTotals[matched.id]) {
-      accountTotals[matched.id].total += amt;
-      accountTotals[matched.id].count += count;
+      if (
+        matched.category === AccountCategory.PENDAPATAN ||
+        matched.category === AccountCategory.BEBAN_OPERASIONAL ||
+        matched.category === AccountCategory.BEBAN_NON_OPERASIONAL
+      ) {
+        accountTotals[matched.id].total += amt;
+        accountTotals[matched.id].count += count;
+      }
     } else if (item.type === 'PEMASUKAN') {
-      unassignedIncome += amt;
+      unassignedOperatingIncome += amt;
     } else {
-      unassignedExpense += amt;
+      unassignedOperatingExpense += amt;
     }
   }
 
@@ -281,28 +345,28 @@ export async function getIncomeStatement(startDate: Date, endDate: Date): Promis
     }
   }
 
-  if (unassignedIncome > 0) {
+  if (unassignedOperatingIncome > 0) {
     revenueAccounts.push({
       id: 'unassigned-income',
-      code: '4999',
-      name: 'Pendapatan Lain-lain (Belum Terkategori)',
+      code: '4002',
+      name: 'Pendapatan Usaha Lain-lain (Belum Terkategori)',
       category: AccountCategory.PENDAPATAN,
-      total: unassignedIncome,
+      total: unassignedOperatingIncome,
       transactionCount: 1,
     });
-    totalRevenue += unassignedIncome;
+    totalRevenue += unassignedOperatingIncome;
   }
 
-  if (unassignedExpense > 0) {
+  if (unassignedOperatingExpense > 0) {
     opexAccounts.push({
       id: 'unassigned-expense',
-      code: '5999',
+      code: '5006',
       name: 'Beban Operasional Lain-lain (Belum Terkategori)',
       category: AccountCategory.BEBAN_OPERASIONAL,
-      total: unassignedExpense,
+      total: unassignedOperatingExpense,
       transactionCount: 1,
     });
-    totalOperatingExpenses += unassignedExpense;
+    totalOperatingExpenses += unassignedOperatingExpense;
   }
 
   const grossOperatingProfit = totalRevenue - totalOperatingExpenses;
@@ -331,74 +395,105 @@ export async function getIncomeStatement(startDate: Date, endDate: Date): Promis
 }
 
 /**
- * 2. Buku Besar per Akun (General Ledger)
+ * 2. Buku Besar per Akun (General Ledger) - Termasuk Buku Kas Umum (1001)
  */
 export async function getGeneralLedger(
   accountId: string,
-  startDate: Date,
-  endDate: Date
+  startDateInput: Date | string,
+  endDateInput: Date | string
 ): Promise<GeneralLedgerResult> {
+  const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
+
   const account = await prisma.account.findUniqueOrThrow({
     where: { id: accountId },
   });
 
-  // Query Saldo Awal (Agregasi) dan Transaksi Periode secara PARALEL
-  const [priorAggregates, periodTransactions] = await Promise.all([
-    // 1. Saldo Awal (Agregasi groupBy berdasarkan type)
-    prisma.transaction.groupBy({
+  const isMainCashAccount =
+    account.code === '1001' ||
+    account.code === '101' ||
+    account.name.toLowerCase().includes('kas tunai');
+
+  // 1. Saldo Awal (sebelum startDate)
+  let openingBalance = 0;
+
+  if (isMainCashAccount) {
+    // Untuk Kas Tunai (Buku Kas Umum), saldo awal = seluruh penerimaan kas - seluruh pengeluaran kas sebelum startDate
+    const priorTotals = await prisma.transaction.groupBy({
+      by: ['type'],
+      where: {
+        date: { lt: startDate },
+      },
+      _sum: { amount: true },
+    });
+
+    for (const item of priorTotals) {
+      const amt = Number(item._sum.amount || 0);
+      if (item.type === 'PEMASUKAN') openingBalance += amt;
+      else openingBalance -= amt;
+    }
+  } else {
+    // Untuk akun spesifik lainnya
+    const priorAggregates = await prisma.transaction.groupBy({
       by: ['type'],
       where: {
         OR: [
           { accountId: account.id },
-          { category: account.name },
+          { category: { contains: account.name, mode: 'insensitive' } },
         ],
         date: { lt: startDate },
       },
       _sum: { amount: true },
-    }),
+    });
 
-    // 2. Transaksi dalam Periode (hanya kolom yang diperlukan)
-    prisma.transaction.findMany({
-      where: {
-        OR: [
-          { accountId: account.id },
-          { category: account.name },
-        ],
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-      select: {
-        id: true,
-        date: true,
-        description: true,
-        type: true,
-        amount: true,
-        createdBy: {
-          select: { name: true },
-        },
-      },
-      orderBy: { date: 'asc' },
-    }),
-  ]);
-
-  let openingBalance = 0;
-  for (const item of priorAggregates) {
-    const amt = Number(item._sum.amount || 0);
-    if (account.category === AccountCategory.PENDAPATAN) {
-      openingBalance += amt;
-    } else if (
-      account.category === AccountCategory.BEBAN_OPERASIONAL ||
-      account.category === AccountCategory.BEBAN_NON_OPERASIONAL
-    ) {
-      openingBalance += amt;
-    } else if (account.category === AccountCategory.ASET) {
-      openingBalance += item.type === 'PEMASUKAN' ? amt : -amt;
-    } else {
-      openingBalance += amt;
+    for (const item of priorAggregates) {
+      const amt = Number(item._sum.amount || 0);
+      if (account.category === AccountCategory.PENDAPATAN) {
+        openingBalance += amt;
+      } else if (
+        account.category === AccountCategory.BEBAN_OPERASIONAL ||
+        account.category === AccountCategory.BEBAN_NON_OPERASIONAL
+      ) {
+        openingBalance += amt;
+      } else if (account.category === AccountCategory.ASET) {
+        openingBalance += item.type === 'PEMASUKAN' ? amt : -amt;
+      } else {
+        openingBalance += item.type === 'PEMASUKAN' ? amt : -amt;
+      }
     }
   }
+
+  // 2. Transaksi dalam Periode
+  const periodTransactions = await prisma.transaction.findMany({
+    where: isMainCashAccount
+      ? {
+          date: {
+            gte: startDate,
+            lte: endDate,
+          },
+        }
+      : {
+          OR: [
+            { accountId: account.id },
+            { category: { contains: account.name, mode: 'insensitive' } },
+          ],
+          date: {
+            gte: startDate,
+            lte: endDate,
+          },
+        },
+    select: {
+      id: true,
+      date: true,
+      description: true,
+      category: true,
+      type: true,
+      amount: true,
+      createdBy: {
+        select: { name: true },
+      },
+    },
+    orderBy: { date: 'asc' },
+  });
 
   let currentBalance = openingBalance;
   let totalDebit = 0;
@@ -409,7 +504,19 @@ export async function getGeneralLedger(
     let debit = 0;
     let credit = 0;
 
-    if (account.category === AccountCategory.PENDAPATAN) {
+    if (isMainCashAccount) {
+      // Kas Tunai: Uang Masuk = Debet Kas, Uang Keluar = Kredit Kas
+      if (trx.type === 'PEMASUKAN') {
+        debit = amt;
+        totalDebit += debit;
+        currentBalance += amt;
+      } else {
+        credit = amt;
+        totalCredit += credit;
+        currentBalance -= amt;
+      }
+    } else if (account.category === AccountCategory.PENDAPATAN) {
+      // Pendapatan: bertambah di Kredit
       credit = amt;
       totalCredit += credit;
       currentBalance += amt;
@@ -417,6 +524,7 @@ export async function getGeneralLedger(
       account.category === AccountCategory.BEBAN_OPERASIONAL ||
       account.category === AccountCategory.BEBAN_NON_OPERASIONAL
     ) {
+      // Beban: bertambah di Debet
       debit = amt;
       totalDebit += debit;
       currentBalance += amt;
@@ -431,15 +539,22 @@ export async function getGeneralLedger(
         currentBalance -= amt;
       }
     } else {
-      credit = amt;
-      totalCredit += credit;
-      currentBalance += amt;
+      // Modal / Kewajiban: bertambah di Kredit saat Pemasukan
+      if (trx.type === 'PEMASUKAN') {
+        credit = amt;
+        totalCredit += credit;
+        currentBalance += amt;
+      } else {
+        debit = amt;
+        totalDebit += debit;
+        currentBalance -= amt;
+      }
     }
 
     return {
       id: trx.id,
       date: trx.date.toISOString(),
-      description: trx.description,
+      description: isMainCashAccount ? `[${trx.category}] ${trx.description}` : trx.description,
       type: trx.type,
       amount: amt,
       debit,
@@ -472,11 +587,13 @@ export async function getGeneralLedger(
  * 3. Laporan Arus Kas Manajemen Profesional (SAK EMKM / PSAK 2)
  */
 export async function getCashFlowSummary(
-  startDate: Date,
-  endDate: Date
+  startDateInput: Date | string,
+  endDateInput: Date | string
 ): Promise<CashFlowResult> {
-  const [priorTotals, periodAggregatesAssigned, periodAggregatesUnassigned, accounts] = await Promise.all([
-    // 1. Saldo Kas Awal (sebelum startDate)
+  const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
+
+  // 1. Jalankan HANYA 2 Query Ringan secara paralel (Saldo Kas Awal + Seluruh Transaksi Periode)
+  const [openingStats, currentTransactions] = await Promise.all([
     prisma.transaction.groupBy({
       by: ['type'],
       where: {
@@ -484,43 +601,28 @@ export async function getCashFlowSummary(
       },
       _sum: { amount: true },
     }),
-
-    // 2. Agregasi Transaksi Kas Berdasarkan Akun
-    prisma.transaction.groupBy({
-      by: ['accountId', 'type'],
+    prisma.transaction.findMany({
       where: {
         date: { gte: startDate, lte: endDate },
-        accountId: { not: null },
       },
-      _sum: { amount: true },
-    }),
-
-    // 3. Agregasi Transaksi Kas Tanpa Akun
-    prisma.transaction.groupBy({
-      by: ['category', 'type'],
-      where: {
-        date: { gte: startDate, lte: endDate },
-        accountId: null,
+      include: {
+        account: {
+          select: { code: true, name: true, category: true },
+        },
       },
-      _sum: { amount: true },
+      orderBy: { date: 'asc' },
     }),
-
-    // 4. Master Akun
-    prisma.account.findMany(),
   ]);
-
-  const accountMap = new Map(accounts.map((a) => [a.id, a]));
 
   let priorIncomeSum = 0;
   let priorExpenseSum = 0;
-  for (const item of priorTotals) {
+  for (const item of openingStats) {
     const sum = Number(item._sum.amount || 0);
     if (item.type === 'PEMASUKAN') priorIncomeSum += sum;
     if (item.type === 'PENGELUARAN') priorExpenseSum += sum;
   }
   const openingCashBalance = priorIncomeSum - priorExpenseSum;
 
-  // 3 Pilar Aktivitas Manajemen
   const opInflows: Record<string, CashFlowActivityItem> = {};
   const opOutflows: Record<string, CashFlowActivityItem> = {};
   const invInflows: Record<string, CashFlowActivityItem> = {};
@@ -533,60 +635,38 @@ export async function getCashFlowSummary(
   const outflowMap: Record<string, number> = {};
   let totalCashOutflow = 0;
 
-  for (const item of periodAggregatesAssigned) {
-    const amt = Number(item._sum.amount || 0);
-    const acc = item.accountId ? accountMap.get(item.accountId) : undefined;
-    const code = acc?.code || '9999';
-    const name = acc?.name || 'Lain-lain';
+  for (const trx of currentTransactions) {
+    const amt = Number(trx.amount || 0);
+    const code = trx.account?.code || (trx.type === 'PEMASUKAN' ? '4001' : '5001');
+    const name = trx.account?.name || trx.category || 'Operasional Usaha';
+    const cat = trx.account?.category;
 
-    if (item.type === 'PEMASUKAN') {
+    if (trx.type === 'PEMASUKAN') {
       inflowMap[name] = (inflowMap[name] || 0) + amt;
       totalCashInflow += amt;
+
+      if (cat === AccountCategory.MODAL || code.startsWith('3')) {
+        finInflows[code] = { code, name, amount: (finInflows[code]?.amount || 0) + amt };
+      } else {
+        opInflows[code] = { code, name, amount: (opInflows[code]?.amount || 0) + amt };
+      }
     } else {
       outflowMap[name] = (outflowMap[name] || 0) + amt;
       totalCashOutflow += amt;
-    }
 
-    // Klasifikasi Berdasarkan Kategori SAK EMKM:
-    // C. Aktivitas Pendanaan (Akun MODAL 3xxx)
-    if (acc?.category === AccountCategory.MODAL || code.startsWith('3')) {
-      if (item.type === 'PEMASUKAN') {
-        finInflows[code] = { code, name, amount: (finInflows[code]?.amount || 0) + amt };
-      } else {
+      if (cat === AccountCategory.MODAL || code.startsWith('3')) {
         finOutflows[code] = { code, name, amount: (finOutflows[code]?.amount || 0) + amt };
-      }
-    }
-    // B. Aktivitas Investasi (Akun Aset Tetap / Peralatan 1005)
-    else if (code === '1005' || code === '105' || name.toLowerCase().includes('peralatan')) {
-      if (item.type === 'PEMASUKAN') {
-        invInflows[code] = { code, name, amount: (invInflows[code]?.amount || 0) + amt };
-      } else {
+      } else if (
+        code === '1005' ||
+        code === '105' ||
+        cat === AccountCategory.ASET ||
+        name.toLowerCase().includes('peralatan') ||
+        name.toLowerCase().includes('inventaris')
+      ) {
         invOutflows[code] = { code, name, amount: (invOutflows[code]?.amount || 0) + amt };
-      }
-    }
-    // A. Aktivitas Operasi (Pendapatan 4xxx & Beban 5xxx & Aset Lancar/Utang)
-    else {
-      if (item.type === 'PEMASUKAN') {
-        opInflows[code] = { code, name, amount: (opInflows[code]?.amount || 0) + amt };
       } else {
         opOutflows[code] = { code, name, amount: (opOutflows[code]?.amount || 0) + amt };
       }
-    }
-  }
-
-  for (const item of periodAggregatesUnassigned) {
-    const amt = Number(item._sum.amount || 0);
-    const catName = item.category || 'Operasional Lain-lain';
-    const code = '9999';
-
-    if (item.type === 'PEMASUKAN') {
-      inflowMap[catName] = (inflowMap[catName] || 0) + amt;
-      totalCashInflow += amt;
-      opInflows[catName] = { code, name: catName, amount: (opInflows[catName]?.amount || 0) + amt };
-    } else {
-      outflowMap[catName] = (outflowMap[catName] || 0) + amt;
-      totalCashOutflow += amt;
-      opOutflows[catName] = { code, name: catName, amount: (opOutflows[catName]?.amount || 0) + amt };
     }
   }
 
@@ -661,11 +741,10 @@ export async function getCashFlowSummary(
 }
 
 /**
- * 4. Laporan Neraca Standar Manajemen (Balance Sheet - SAK EMKM)
- * Menggunakan Agregasi Database PostgreSQL Berkecepatan Tinggi (O(1) Memory Footprint)
+ * 4. Laporan Posisi Keuangan (Neraca Standar SAK EMKM)
  */
-export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResult> {
-  const cutoffDate = new Date(asOfDate);
+export async function getBalanceSheet(asOfDateInput: Date | string): Promise<BalanceSheetResult> {
+  const cutoffDate = new Date(asOfDateInput);
   cutoffDate.setHours(23, 59, 59, 999);
 
   // Jalankan agregasi transaksi dan master akun secara PARALEL
@@ -769,12 +848,12 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
         accLower === catLower ||
         accLower.includes(catLower) ||
         catLower.includes(accLower) ||
-        (catLower.includes('catering') && (a.code === '401' || a.code === '4001')) ||
-        (catLower.includes('bahan baku') && (a.code === '501' || a.code === '5001')) ||
-        (catLower.includes('tenaga kerja') && a.code === '502') ||
-        (catLower.includes('kemasan') && (a.code === '503' || a.code === '5002')) ||
-        (catLower.includes('transportasi') && (a.code === '504' || a.code === '5004')) ||
-        (catLower.includes('gas') && (a.code === '505' || a.code === '5005'))
+        (catLower.includes('catering') && (a.code === '4001' || a.code === '401')) ||
+        (catLower.includes('bahan baku') && (a.code === '5001' || a.code === '501')) ||
+        (catLower.includes('tenaga kerja') && (a.code === '5002' || a.code === '502')) ||
+        (catLower.includes('kemasan') && (a.code === '5003' || a.code === '503')) ||
+        (catLower.includes('transportasi') && (a.code === '5004' || a.code === '504')) ||
+        (catLower.includes('gas') && (a.code === '5005' || a.code === '505'))
       );
     });
 
@@ -807,8 +886,8 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
 
   const currentPeriodProfit = totalRevenue - totalExpenses;
 
-  // 1. ASET LANCAR (Kas 1001, Bank 1002, Piutang 1003, Persediaan 1004)
-  const isFixedAsset = (acc: typeof accounts[0]) =>
+  // 1. ASET LANCAR
+  const isFixedAsset = (acc: (typeof accounts)[0]) =>
     acc.code === '1005' ||
     acc.code === '105' ||
     acc.code.startsWith('12') ||
@@ -820,16 +899,16 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
   );
 
   const currentAssetItems: BalanceSheetItem[] = [];
-  
-  // Jika akun 1001 Kas Tunai terdaftar
+
   const kasAccount = currentAssetAccounts.find(
     (a) => a.code === '1001' || a.code === '101' || a.name.toLowerCase().includes('kas')
   );
+
   currentAssetItems.push({
     id: kasAccount?.id,
     code: kasAccount?.code || '1001',
     name: kasAccount?.name || 'Kas Tunai',
-    amount: netCashBalance > 0 ? netCashBalance : 0,
+    amount: Math.max(0, netCashBalance),
   });
 
   for (const acc of currentAssetAccounts) {
@@ -845,7 +924,7 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
 
   const totalCurrentAssets = currentAssetItems.reduce((sum, item) => sum + item.amount, 0);
 
-  // 2. ASET TETAP (105 Peralatan catering)
+  // 2. ASET TETAP
   const fixedAssetAccounts = accounts.filter(
     (a) => a.category === AccountCategory.ASET && isFixedAsset(a)
   );
@@ -854,20 +933,22 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
   for (const acc of fixedAssetAccounts) {
     const isAccumulatedDepreciation = acc.code === '1209' || acc.name.toLowerCase().includes('akumulasi');
     const rawVal = accountBalances[acc.code] || 0;
-    const finalAmount = isAccumulatedDepreciation ? -Math.abs(rawVal) : rawVal;
+    const finalAmount = isAccumulatedDepreciation ? -Math.abs(rawVal) : Math.abs(rawVal);
 
-    fixedAssetItems.push({
-      id: acc.id,
-      code: acc.code,
-      name: acc.name,
-      amount: finalAmount,
-    });
+    if (finalAmount !== 0 || acc.code === '1005') {
+      fixedAssetItems.push({
+        id: acc.id,
+        code: acc.code,
+        name: acc.name,
+        amount: finalAmount,
+      });
+    }
   }
 
   const totalFixedAssets = fixedAssetItems.reduce((sum, item) => sum + item.amount, 0);
   const totalAssets = totalCurrentAssets + totalFixedAssets;
 
-  // 3. KEWAJIBAN (LIABILITAS - 201 Utang usaha)
+  // 3. KEWAJIBAN (LIABILITAS)
   const currentLiabAccounts = accounts.filter(
     (a) => a.category === AccountCategory.KEWAJIBAN && !a.code.startsWith('22')
   );
@@ -893,7 +974,7 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
   const totalLongTermLiabilities = longLiabItems.reduce((sum, item) => sum + item.amount, 0);
   const totalLiabilities = totalCurrentLiabilities + totalLongTermLiabilities;
 
-  // 4. EKUITAS (MODAL - 301 Modal usaha, 302 Laba ditahan)
+  // 4. EKUITAS (MODAL)
   const capitalAccounts = accounts.filter((a) => a.category === AccountCategory.MODAL);
   const capitalItems: BalanceSheetItem[] = [];
 
@@ -959,9 +1040,11 @@ export async function getBalanceSheet(asOfDate: Date): Promise<BalanceSheetResul
  * 5. Laporan Perubahan Modal / Ekuitas (Statement of Changes in Equity - SAK EMKM)
  */
 export async function getEquityStatement(
-  startDate: Date,
-  endDate: Date
+  startDateInput: Date | string,
+  endDateInput: Date | string
 ): Promise<EquityStatementResult> {
+  const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
+
   // 1. Ambil Laba Rugi Periode Berjalan
   const incomeStatement = await getIncomeStatement(startDate, endDate);
   const netIncome = incomeStatement.netIncome;
@@ -985,7 +1068,6 @@ export async function getEquityStatement(
     }),
   ]);
 
-  // Hitung Modal Awal dari transaksi terdahulu
   let beginningCapital = 0;
   for (const item of priorCapitalAgg) {
     const amt = Number(item._sum.amount || 0);
@@ -1021,3 +1103,4 @@ export async function getEquityStatement(
     retainedEarnings: beginningCapital,
   };
 }
+

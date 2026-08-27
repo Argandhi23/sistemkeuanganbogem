@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Save } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
@@ -14,6 +14,7 @@ export default function TambahPesananPage() {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
 
+  const isSubmittingRef = useRef(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [eventDate, setEventDate] = useState<string>(
@@ -30,6 +31,8 @@ export default function TambahPesananPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isLoading) return;
+
     setError(null);
 
     if (!customerName.trim()) {
@@ -57,6 +60,7 @@ export default function TambahPesananPage() {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -86,6 +90,7 @@ export default function TambahPesananPage() {
       setError('Terjadi kesalahan jaringan saat menyimpan pesanan');
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 

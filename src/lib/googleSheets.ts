@@ -1,6 +1,12 @@
 import { google } from 'googleapis';
 import prisma from './prisma';
-import { getIncomeStatement, getCashFlowSummary, getBalanceSheet } from './accounting';
+import {
+  getIncomeStatement,
+  getCashFlowSummary,
+  getBalanceSheet,
+  getEquityStatement,
+  getGeneralLedger,
+} from './accounting';
 
 // Helper untuk format tanggal Indonesia
 export function formatDateIndo(dateInput: Date | string): string {
@@ -56,6 +62,15 @@ function extractRowNumberFromRange(rangeStr?: string | null): number | null {
 let lastHeadersEnsured = 0;
 const HEADERS_CACHE_TTL = 30 * 60 * 1000; // 30 menit
 
+const REQUIRED_SHEET_TABS = [
+  'Pembukuan',
+  'Laporan Laba Rugi',
+  'Neraca Keuangan',
+  'Laporan Arus Kas',
+  'Laporan Perubahan Modal',
+  'Buku Besar Kas',
+];
+
 /**
  * Memastikan Tab dan Header ada di spreadsheet jika baru dibuat
  */
@@ -71,15 +86,12 @@ export async function ensureSheetHeaders(force = false) {
   const sheets = google.sheets({ version: 'v4', auth: client.auth });
 
   try {
-    // Dapatkan list sheet yang ada
     const ssMeta = await sheets.spreadsheets.get({
       spreadsheetId: client.spreadsheetId,
     });
     const sheetTitles = ssMeta.data.sheets?.map((s) => s.properties?.title || '') || [];
 
-    // Buat sheet jika belum ada (termasuk Tab Neraca Keuangan)
-    const requiredSheets = ['Pembukuan', 'Laporan Bulanan', 'Neraca Keuangan'];
-    const addSheetRequests = requiredSheets
+    const addSheetRequests = REQUIRED_SHEET_TABS
       .filter((title) => !sheetTitles.includes(title))
       .map((title) => ({
         addSheet: { properties: { title } },
@@ -92,7 +104,7 @@ export async function ensureSheetHeaders(force = false) {
       });
     }
 
-    // 1. Cek Header Pembukuan
+    // Cek Header Pembukuan
     const resPembukuan = await sheets.spreadsheets.values.get({
       spreadsheetId: client.spreadsheetId,
       range: 'Pembukuan!A1:G1',
@@ -105,7 +117,7 @@ export async function ensureSheetHeaders(force = false) {
         valueInputOption: 'USER_ENTERED',
         requestBody: {
           values: [
-            ['Tanggal', 'Tipe Transaksi', 'Kategori', 'Deskripsi', 'Jumlah (Rp)', 'Diinput Oleh', 'ID Transaksi'],
+            ['Tanggal', 'Tipe Transaksi', 'Kategori Pos', 'Deskripsi', 'Jumlah (Rp)', 'Diinput Oleh', 'ID Transaksi'],
           ],
         },
       });
@@ -120,7 +132,7 @@ export async function ensureSheetHeaders(force = false) {
 }
 
 // ==========================================
-// TRANSAKSI (PEMBUKUAN)
+// TRANSAKSI KAS (PEMBUKUAN)
 // ==========================================
 
 export async function appendTransactionRow(
@@ -164,7 +176,7 @@ export async function appendTransactionRow(
 
     const sheetRowId = extractRowNumberFromRange(res.data.updates?.updatedRange);
 
-    // Auto update tab Laporan Bulanan & Neraca secara debounced di latar belakang
+    // Auto update seluruh tab laporan di Google Sheets di latar belakang
     triggerDebouncedReportSync();
 
     return { success: true, sheetRowId };
@@ -266,7 +278,7 @@ export async function clearTransactionRow(sheetRowId: number | null | undefined,
       range: `Pembukuan!A${targetRow}:G${targetRow}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
-        values: [['[DIHAPUS DARI SISTEM]', '-', '-', '-', 0, '-', trxId]],
+        values: [['[DIHAPUS]', '-', '-', '-', 0, '-', trxId]],
       },
     });
 
@@ -286,16 +298,18 @@ export function triggerDebouncedReportSync() {
     clearTimeout(debounceReportSyncTimer);
   }
   debounceReportSyncTimer = setTimeout(() => {
-    syncMonthlyFinancialReportToSheet().catch(() => {});
-    syncBalanceSheetToSheet().catch(() => {});
-  }, 8000);
+    syncAllFinancialReportsToSheet().catch(() => {});
+  }, 5000);
 }
 
 // ==========================================
-// TAB 1: LAPORAN BULANAN (LABA RUGI & ARUS KAS)
+// TAB 1: LAPORAN LABA RUGI (INCOME STATEMENT)
 // ==========================================
 
-export async function syncMonthlyFinancialReportToSheet(targetYear?: number, targetMonth?: number) {
+export async function syncIncomeStatementToSheet(
+  startDateInput?: Date | string,
+  endDateInput?: Date | string
+) {
   const client = getGoogleAuthClient();
   if (!client) return { success: false, reason: 'Credentials not configured' };
 
@@ -304,689 +318,86 @@ export async function syncMonthlyFinancialReportToSheet(targetYear?: number, tar
   try {
     await ensureSheetHeaders();
 
-    const ssMeta = await sheets.spreadsheets.get({
-      spreadsheetId: client.spreadsheetId,
-    });
-    const sheetObj = ssMeta.data.sheets?.find((s) => s.properties?.title === 'Laporan Bulanan');
-    const sheetId = sheetObj?.properties?.sheetId ?? 0;
-
     const now = new Date();
-    const year = targetYear !== undefined ? targetYear : now.getFullYear();
-    const month = targetMonth !== undefined ? targetMonth : now.getMonth();
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    const monthNames = [
-      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    const incomeStatement = await getIncomeStatement(startDate, endDate);
+
+    const nowFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeStyle: 'medium' }).format(new Date());
+    const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
+
+    const rawValues: (string | number)[][] = [
+      ['LAPORAN LABA RUGI — BUMDES BOGEM', '', '', ''],
+      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', ''],
+      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['', '', '', ''],
+      ['Kode Akun', 'Pos Akuntansi / Keterangan', 'Jumlah (Rp)', 'Rincian Transaksi'],
+      ['A. PENDAPATAN USAHA CATERING', '', '', ''],
     ];
 
-    const startOfMonth = new Date(year, month, 1);
-    const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59, 999);
-
-    const [incomeStatement, cashFlow] = await Promise.all([
-      getIncomeStatement(startOfMonth, endOfMonth),
-      getCashFlowSummary(startOfMonth, endOfMonth),
-    ]);
-
-    const nowFormatted = new Intl.DateTimeFormat('id-ID', {
-      dateStyle: 'full',
-      timeStyle: 'medium',
-    }).format(new Date());
-
-    interface RowSpec {
-      values: (string | number)[];
-      type:
-        | 'MAIN_TITLE'
-        | 'SUBTITLE'
-        | 'TIMESTAMP'
-        | 'EMPTY'
-        | 'SECTION_HEADER'
-        | 'TABLE_HEADER'
-        | 'CATEGORY_HEADER'
-        | 'DATA_ROW'
-        | 'SUBTOTAL_ROW'
-        | 'NET_INCOME_ROW'
-        | 'CASH_FINAL_ROW'
-        | 'NOTE';
-      isPositive?: boolean;
-    }
-
-    const rowSpecs: RowSpec[] = [
-      {
-        values: ['LAPORAN KEUANGAN KAS BULANAN — BUMDES BOGEM', '', '', ''],
-        type: 'MAIN_TITLE',
-      },
-      {
-        values: [`Unit Usaha Catering Desa Bogem • Periode: ${monthNames[month]} ${year}`, '', '', ''],
-        type: 'SUBTITLE',
-      },
-      {
-        values: [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
-        type: 'TIMESTAMP',
-      },
-      { values: ['', '', '', ''], type: 'EMPTY' },
-
-      // I. Laba Rugi
-      {
-        values: ['I. LAPORAN LABA RUGI (INCOME STATEMENT)', '', '', ''],
-        type: 'SECTION_HEADER',
-      },
-      {
-        values: ['Kode Akun', 'Nama Akun / Pos Keuangan', 'Jumlah (Rp)', 'Keterangan'],
-        type: 'TABLE_HEADER',
-      },
-      {
-        values: ['A. PENDAPATAN USAHA CATERING', '', '', ''],
-        type: 'CATEGORY_HEADER',
-      },
-    ];
-
-    // Data Pendapatan
     if (incomeStatement.revenue.accounts.length === 0) {
-      rowSpecs.push({
-        values: ['-', 'Tidak ada pendapatan pada periode ini', 0, '-'],
-        type: 'DATA_ROW',
-      });
+      rawValues.push(['-', 'Tidak ada pendapatan pada periode ini', 0, '-']);
     } else {
       for (const acc of incomeStatement.revenue.accounts) {
-        rowSpecs.push({
-          values: [acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`],
-          type: 'DATA_ROW',
-        });
+        rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
       }
     }
-    rowSpecs.push({
-      values: ['', 'TOTAL PENDAPATAN (A)', incomeStatement.revenue.total, ''],
-      type: 'SUBTOTAL_ROW',
-    });
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
+    rawValues.push(['', 'TOTAL PENDAPATAN (A)', incomeStatement.revenue.total, '']);
+    rawValues.push(['', '', '', '']);
 
-    // Data Beban Operasional
-    rowSpecs.push({
-      values: ['B. BEBAN OPERASIONAL', '', '', ''],
-      type: 'CATEGORY_HEADER',
-    });
+    rawValues.push(['B. BEBAN OPERASIONAL', '', '', '']);
     if (incomeStatement.operatingExpenses.accounts.length === 0) {
-      rowSpecs.push({
-        values: ['-', 'Tidak ada beban operasional pada periode ini', 0, '-'],
-        type: 'DATA_ROW',
-      });
+      rawValues.push(['-', 'Tidak ada beban operasional pada periode ini', 0, '-']);
     } else {
       for (const acc of incomeStatement.operatingExpenses.accounts) {
-        rowSpecs.push({
-          values: [acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`],
-          type: 'DATA_ROW',
-        });
+        rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
       }
     }
-    rowSpecs.push({
-      values: ['', 'TOTAL BEBAN OPERASIONAL (B)', incomeStatement.operatingExpenses.total, ''],
-      type: 'SUBTOTAL_ROW',
-    });
-    rowSpecs.push({
-      values: ['', 'LABA OPERASIONAL / KOTOR (A − B)', incomeStatement.grossOperatingProfit, ''],
-      type: 'SUBTOTAL_ROW',
-    });
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
+    rawValues.push(['', 'TOTAL BEBAN OPERASIONAL (B)', incomeStatement.operatingExpenses.total, '']);
+    rawValues.push(['', 'LABA OPERASIONAL / KOTOR (A − B)', incomeStatement.grossOperatingProfit, '']);
+    rawValues.push(['', '', '', '']);
 
-    // Data Beban Non-Operasional
-    rowSpecs.push({
-      values: ['C. BEBAN NON-OPERASIONAL', '', '', ''],
-      type: 'CATEGORY_HEADER',
-    });
+    rawValues.push(['C. BEBAN NON-OPERASIONAL', '', '', '']);
     if (incomeStatement.nonOperatingExpenses.accounts.length === 0) {
-      rowSpecs.push({
-        values: ['-', 'Tidak ada beban non-operasional pada periode ini', 0, '-'],
-        type: 'DATA_ROW',
-      });
+      rawValues.push(['-', 'Tidak ada beban non-operasional pada periode ini', 0, '-']);
     } else {
       for (const acc of incomeStatement.nonOperatingExpenses.accounts) {
-        rowSpecs.push({
-          values: [acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`],
-          type: 'DATA_ROW',
-        });
+        rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
       }
     }
-    rowSpecs.push({
-      values: ['', 'TOTAL BEBAN NON-OPERASIONAL (C)', incomeStatement.nonOperatingExpenses.total, ''],
-      type: 'SUBTOTAL_ROW',
-    });
-    rowSpecs.push({
-      values: [
-        '',
-        'LABA / RUGI BERSIH PERIODE BERJALAN',
-        incomeStatement.netIncome,
-        incomeStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi',
-      ],
-      type: 'NET_INCOME_ROW',
-      isPositive: incomeStatement.netIncome >= 0,
-    });
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
+    rawValues.push(['', 'TOTAL BEBAN NON-OPERASIONAL (C)', incomeStatement.nonOperatingExpenses.total, '']);
+    rawValues.push([
+      '',
+      'LABA / RUGI BERSIH PERIODE BERJALAN',
+      incomeStatement.netIncome,
+      incomeStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi',
+    ]);
+    rawValues.push(['', '', '', '']);
+    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '']);
 
-    // II. Rekapitulasi Arus Kas (Perbaikan tata letak agar teks Col B tidak terpotong)
-    rowSpecs.push({
-      values: ['II. REKAPITULASI ARUS KAS (CASH FLOW)', '', '', ''],
-      type: 'SECTION_HEADER',
-    });
-    rowSpecs.push({
-      values: ['No', 'Pos Aliran Kas', 'Jumlah (Rp)', 'Keterangan / Status Kas'],
-      type: 'TABLE_HEADER',
-    });
-    rowSpecs.push({
-      values: ['1', 'Saldo Kas Awal Periode', cashFlow.openingCashBalance, 'Kas awal periode'],
-      type: 'DATA_ROW',
-    });
-
-    rowSpecs.push({
-      values: ['2. ARUS KAS MASUK (PENERIMAAN)', '', '', ''],
-      type: 'CATEGORY_HEADER',
-    });
-    if (cashFlow.inflowBreakdown.length === 0) {
-      rowSpecs.push({
-        values: ['-', 'Tidak ada kas masuk pada periode ini', 0, '-'],
-        type: 'DATA_ROW',
-      });
-    } else {
-      for (const item of cashFlow.inflowBreakdown) {
-        rowSpecs.push({
-          values: ['•', item.name, item.amount, 'Penerimaan Kas'],
-          type: 'DATA_ROW',
-        });
-      }
-    }
-    rowSpecs.push({
-      values: ['', 'Subtotal Kas Masuk', cashFlow.totalCashInflow, 'Total penerimaan kas'],
-      type: 'SUBTOTAL_ROW',
-    });
-
-    rowSpecs.push({
-      values: ['3. ARUS KAS KELUAR (PENGELUARAN)', '', '', ''],
-      type: 'CATEGORY_HEADER',
-    });
-    if (cashFlow.outflowBreakdown.length === 0) {
-      rowSpecs.push({
-        values: ['-', 'Tidak ada kas keluar pada periode ini', 0, '-'],
-        type: 'DATA_ROW',
-      });
-    } else {
-      for (const item of cashFlow.outflowBreakdown) {
-        rowSpecs.push({
-          values: ['•', item.name, item.amount, 'Pengeluaran Kas'],
-          type: 'DATA_ROW',
-        });
-      }
-    }
-    rowSpecs.push({
-      values: ['', 'Subtotal Kas Keluar', cashFlow.totalCashOutflow, 'Total pengeluaran kas'],
-      type: 'SUBTOTAL_ROW',
-    });
-
-    rowSpecs.push({
-      values: [
-        '',
-        'Arus Kas Bersih (Net Flow)',
-        cashFlow.netCashFlow,
-        cashFlow.netCashFlow >= 0 ? 'Surplus Kas' : 'Defisit Kas',
-      ],
-      type: 'SUBTOTAL_ROW',
-    });
-
-    rowSpecs.push({
-      values: [
-        '',
-        'SALDO KAS AKHIR PERIODE',
-        cashFlow.closingCashBalance,
-        'Kas riil BUMDes saat ini',
-      ],
-      type: 'CASH_FINAL_ROW',
-      isPositive: cashFlow.closingCashBalance >= 0,
-    });
-
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
-    rowSpecs.push({
-      values: ['* Catatan: Data laporan ini diperbarui secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', ''],
-      type: 'NOTE',
-    });
-
-    // 1. Kosongkan isi range tab Laporan Bulanan
+    // Clear & Update
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
-      range: 'Laporan Bulanan!A1:Z500',
+      range: 'Laporan Laba Rugi!A1:Z500',
     }).catch(() => {});
 
-    // 2. Tulis data nilai mentah (values)
-    const rawValues = rowSpecs.map((r) => r.values);
     await sheets.spreadsheets.values.update({
       spreadsheetId: client.spreadsheetId,
-      range: 'Laporan Bulanan!A1',
+      range: 'Laporan Laba Rugi!A1',
       valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: rawValues,
-      },
+      requestBody: { values: rawValues },
     });
 
-    // 3. Susun batchUpdate formatting
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const formatRequests: any[] = [
-      {
-        unmergeCells: {
-          range: {
-            sheetId,
-            startRowIndex: 0,
-            endRowIndex: 500,
-            startColumnIndex: 0,
-            endColumnIndex: 20,
-          },
-        },
-      },
-      // Reset base format
-      {
-        repeatCell: {
-          range: {
-            sheetId,
-            startRowIndex: 0,
-            endRowIndex: rowSpecs.length + 10,
-            startColumnIndex: 0,
-            endColumnIndex: 4,
-          },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: { red: 1, green: 1, blue: 1 },
-              textFormat: {
-                fontFamily: 'Arial',
-                fontSize: 10,
-                bold: false,
-                foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 },
-              },
-              horizontalAlignment: 'LEFT',
-              verticalAlignment: 'MIDDLE',
-              wrapStrategy: 'CLIP',
-            },
-          },
-          fields: 'userEnteredFormat',
-        },
-      },
-      // Lebar Kolom Dioptimalkan Agar Tidak Terpotong
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
-          properties: { pixelSize: 120 },
-          fields: 'pixelSize',
-        },
-      },
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
-          properties: { pixelSize: 380 },
-          fields: 'pixelSize',
-        },
-      },
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 3 },
-          properties: { pixelSize: 180 },
-          fields: 'pixelSize',
-        },
-      },
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 3, endIndex: 4 },
-          properties: { pixelSize: 220 },
-          fields: 'pixelSize',
-        },
-      },
-    ];
-
-    rowSpecs.forEach((spec, rowIndex) => {
-      if (spec.type === 'MAIN_TITLE') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.06, green: 0.09, blue: 0.16 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 13, bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                  horizontalAlignment: 'CENTER',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      } else if (spec.type === 'SUBTITLE') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.12, green: 0.16, blue: 0.23 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 10, bold: true, foregroundColor: { red: 0.89, green: 0.92, blue: 0.95 } },
-                  horizontalAlignment: 'CENTER',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      } else if (spec.type === 'TIMESTAMP') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.97, green: 0.98, blue: 0.99 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 9, italic: true, foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  horizontalAlignment: 'CENTER',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      } else if (spec.type === 'SECTION_HEADER') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.12, green: 0.16, blue: 0.23 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 11, bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                  horizontalAlignment: 'LEFT',
-                  verticalAlignment: 'MIDDLE',
-                  borders: {
-                    top: { style: 'SOLID', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                    bottom: { style: 'SOLID', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,borders)',
-            },
-          }
-        );
-      } else if (spec.type === 'TABLE_HEADER') {
-        formatRequests.push({
-          repeatCell: {
-            range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 0.95, green: 0.96, blue: 0.98 },
-                textFormat: { fontFamily: 'Arial', fontSize: 10, bold: true, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                verticalAlignment: 'MIDDLE',
-                borders: {
-                  top: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  bottom: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  left: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  right: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                },
-              },
-            },
-            fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment,borders)',
-          },
-        });
-      } else if (spec.type === 'CATEGORY_HEADER') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.97, green: 0.98, blue: 0.99 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 10, bold: true, foregroundColor: { red: 0.2, green: 0.25, blue: 0.33 } },
-                  verticalAlignment: 'MIDDLE',
-                  borders: {
-                    top: { style: 'SOLID', color: { red: 0.89, green: 0.91, blue: 0.94 } },
-                    bottom: { style: 'SOLID', color: { red: 0.89, green: 0.91, blue: 0.94 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment,borders)',
-            },
-          }
-        );
-      } else if (spec.type === 'DATA_ROW') {
-        formatRequests.push(
-          // Col A (Code/No)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 1 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'CENTER',
-                  textFormat: { foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat,borders)',
-            },
-          },
-          // Col B (Description)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 2 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat,borders)',
-            },
-          },
-          // Col C (Currency Amount)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 2, endColumnIndex: 3 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'RIGHT',
-                  numberFormat: { type: 'CURRENCY', pattern: '"Rp"#,##0;("Rp"#,##0);"-"' },
-                  textFormat: { bold: true, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,numberFormat,textFormat,borders)',
-            },
-          },
-          // Col D (Note/Status)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 3, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { fontSize: 9, foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat,borders)',
-            },
-          }
-        );
-      } else if (spec.type === 'SUBTOTAL_ROW') {
-        formatRequests.push(
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.95, green: 0.96, blue: 0.98 },
-                  borders: {
-                    top: { style: 'SOLID', color: { red: 0.2, green: 0.25, blue: 0.33 } },
-                    bottom: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,borders)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 2 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { bold: true, fontSize: 10, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 2, endColumnIndex: 3 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'RIGHT',
-                  numberFormat: { type: 'CURRENCY', pattern: '"Rp"#,##0;("Rp"#,##0);"-"' },
-                  textFormat: { bold: true, fontSize: 10, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,numberFormat,textFormat)',
-            },
-          }
-        );
-      } else if (spec.type === 'NET_INCOME_ROW' || spec.type === 'CASH_FINAL_ROW') {
-        const bg =
-          spec.isPositive !== false
-            ? { red: 0.92, green: 0.99, blue: 0.96 }
-            : { red: 1, green: 0.95, blue: 0.95 };
-
-        const fg =
-          spec.isPositive !== false
-            ? { red: 0.02, green: 0.37, blue: 0.27 }
-            : { red: 0.62, green: 0.07, blue: 0.22 };
-
-        formatRequests.push(
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: bg,
-                  borders: {
-                    top: { style: 'SOLID_MEDIUM', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                    bottom: { style: 'DOUBLE', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,borders)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 2 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { bold: true, fontSize: 11, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 2, endColumnIndex: 3 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'RIGHT',
-                  numberFormat: { type: 'CURRENCY', pattern: '"Rp"#,##0;("Rp"#,##0);"-"' },
-                  textFormat: { bold: true, fontSize: 11, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,numberFormat,textFormat)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 3, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { bold: true, fontSize: 10, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
-            },
-          }
-        );
-      } else if (spec.type === 'NOTE') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  textFormat: { fontFamily: 'Arial', fontSize: 9, italic: true, foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  horizontalAlignment: 'LEFT',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      }
-    });
-
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: client.spreadsheetId,
-      requestBody: { requests: formatRequests },
-    });
-
-    console.log(`Tab "Laporan Bulanan" berhasil disinkronkan (${monthNames[month]} ${year}).`);
-    return { success: true, message: `Laporan ${monthNames[month]} ${year} berhasil disinkronkan ke Google Sheets` };
+    return { success: true, message: 'Laporan Laba Rugi berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
-    console.error('Error syncMonthlyFinancialReportToSheet:', error);
+    console.error('Error syncIncomeStatementToSheet:', error);
     return { success: false, error };
   }
 }
 
 // ==========================================
-// TAB 2: NERACA KEUANGAN (STANDAR SAK EMKM)
+// TAB 2: NERACA KEUANGAN (BALANCE SHEET)
 // ==========================================
 
 export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
@@ -998,700 +409,403 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
   try {
     await ensureSheetHeaders();
 
-    const ssMeta = await sheets.spreadsheets.get({
-      spreadsheetId: client.spreadsheetId,
-    });
-    const sheetObj = ssMeta.data.sheets?.find((s) => s.properties?.title === 'Neraca Keuangan');
-    const sheetId = sheetObj?.properties?.sheetId ?? 0;
-
     const asOfDate = asOfDateInput ? new Date(asOfDateInput) : new Date();
     const balanceSheet = await getBalanceSheet(asOfDate);
 
-    const nowFormatted = new Intl.DateTimeFormat('id-ID', {
-      dateStyle: 'full',
-      timeStyle: 'medium',
-    }).format(new Date());
+    const nowFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeStyle: 'medium' }).format(new Date());
+    const dateFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(asOfDate);
 
-    const dateFormatted = new Intl.DateTimeFormat('id-ID', {
-      dateStyle: 'long',
-    }).format(asOfDate);
-
-    interface RowSpec {
-      values: (string | number)[];
-      type:
-        | 'MAIN_TITLE'
-        | 'SUBTITLE'
-        | 'TIMESTAMP'
-        | 'EMPTY'
-        | 'SECTION_HEADER'
-        | 'TABLE_HEADER'
-        | 'CATEGORY_HEADER'
-        | 'DATA_ROW'
-        | 'SUBTOTAL_ROW'
-        | 'GRAND_TOTAL_ASSETS'
-        | 'GRAND_TOTAL_LIAB'
-        | 'BALANCE_CHECK_ROW'
-        | 'NOTE';
-      isBalanced?: boolean;
-    }
-
-    const rowSpecs: RowSpec[] = [
-      {
-        values: ['LAPORAN POSISI KEUANGAN (NERACA) — BUMDES BOGEM', '', '', ''],
-        type: 'MAIN_TITLE',
-      },
-      {
-        values: [`Unit Usaha Catering Desa Bogem • Posisi Per: ${dateFormatted}`, '', '', ''],
-        type: 'SUBTITLE',
-      },
-      {
-        values: [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
-        type: 'TIMESTAMP',
-      },
-      { values: ['', '', '', ''], type: 'EMPTY' },
-
-      // I. ASET (AKTIVA)
-      {
-        values: ['I. ASET (AKTIVA)', '', '', ''],
-        type: 'SECTION_HEADER',
-      },
-      {
-        values: ['Kode Akun', 'Pos Akun Keuangan', 'Jumlah (Rp)', 'Kategori SAK EMKM'],
-        type: 'TABLE_HEADER',
-      },
-      {
-        values: ['A. ASET LANCAR (CURRENT ASSETS)', '', '', ''],
-        type: 'CATEGORY_HEADER',
-      },
+    const rawValues: (string | number)[][] = [
+      ['LAPORAN POSISI KEUANGAN (NERACA) — BUMDES BOGEM', '', '', ''],
+      [`Unit Usaha Catering Desa Bogem • Posisi Per: ${dateFormatted}`, '', '', ''],
+      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['', '', '', ''],
+      ['I. ASET (AKTIVA)', '', '', ''],
+      ['Kode Akun', 'Pos Akun Keuangan', 'Jumlah (Rp)', 'Kategori SAK EMKM'],
+      ['A. ASET LANCAR (CURRENT ASSETS)', '', '', ''],
     ];
 
-    // Data Aset Lancar
     for (const item of balanceSheet.assets.currentAssets.items) {
-      rowSpecs.push({
-        values: [item.code, item.name, item.amount, 'Aset Lancar'],
-        type: 'DATA_ROW',
-      });
+      rawValues.push([item.code, item.name, item.amount, 'Aset Lancar']);
     }
-    rowSpecs.push({
-      values: ['', 'TOTAL ASET LANCAR (A)', balanceSheet.assets.currentAssets.total, ''],
-      type: 'SUBTOTAL_ROW',
-    });
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
+    rawValues.push(['', 'TOTAL ASET LANCAR (A)', balanceSheet.assets.currentAssets.total, '']);
+    rawValues.push(['', '', '', '']);
 
-    // Data Aset Tetap
-    rowSpecs.push({
-      values: ['B. ASET TETAP & INVENTARIS (NON-CURRENT ASSETS)', '', '', ''],
-      type: 'CATEGORY_HEADER',
-    });
+    rawValues.push(['B. ASET TETAP & INVENTARIS', '', '', '']);
     if (balanceSheet.assets.fixedAssets.items.length === 0) {
-      rowSpecs.push({
-        values: ['-', 'Tidak ada aset tetap tercatat', 0, '-'],
-        type: 'DATA_ROW',
-      });
+      rawValues.push(['-', 'Tidak ada aset tetap tercatat', 0, '-']);
     } else {
       for (const item of balanceSheet.assets.fixedAssets.items) {
-        rowSpecs.push({
-          values: [item.code, item.name, item.amount, item.amount < 0 ? 'Penyusutan' : 'Aset Tetap'],
-          type: 'DATA_ROW',
-        });
+        rawValues.push([item.code, item.name, item.amount, item.amount < 0 ? 'Penyusutan' : 'Aset Tetap']);
       }
     }
-    rowSpecs.push({
-      values: ['', 'TOTAL ASET TETAP (B)', balanceSheet.assets.fixedAssets.total, ''],
-      type: 'SUBTOTAL_ROW',
-    });
+    rawValues.push(['', 'TOTAL ASET TETAP (B)', balanceSheet.assets.fixedAssets.total, '']);
+    rawValues.push(['', 'TOTAL ASET / AKTIVA (A + B)', balanceSheet.assets.totalAssets, 'Total Seluruh Kekayaan Usaha']);
+    rawValues.push(['', '', '', '']);
 
-    // Grand Total Aset
-    rowSpecs.push({
-      values: ['', 'TOTAL ASET / AKTIVA (A + B)', balanceSheet.assets.totalAssets, 'Total Seluruh Kekayaan Usaha'],
-      type: 'GRAND_TOTAL_ASSETS',
-    });
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
+    rawValues.push(['II. KEWAJIBAN & EKUITAS (PASIVA)', '', '', '']);
+    rawValues.push(['Kode Akun', 'Pos Akun Keuangan', 'Jumlah (Rp)', 'Kategori SAK EMKM']);
+    rawValues.push(['A. KEWAJIBAN / UTANG (LIABILITIES)', '', '', '']);
 
-    // II. KEWAJIBAN & EKUITAS (PASIVA)
-    rowSpecs.push({
-      values: ['II. KEWAJIBAN & EKUITAS (PASIVA)', '', '', ''],
-      type: 'SECTION_HEADER',
-    });
-    rowSpecs.push({
-      values: ['Kode Akun', 'Pos Akun Keuangan', 'Jumlah (Rp)', 'Kategori SAK EMKM'],
-      type: 'TABLE_HEADER',
-    });
-    rowSpecs.push({
-      values: ['A. KEWAJIBAN / UTANG (LIABILITIES)', '', '', ''],
-      type: 'CATEGORY_HEADER',
-    });
-
-    // Data Kewajiban
     const allLiabItems = [
       ...balanceSheet.liabilities.currentLiabilities.items,
       ...balanceSheet.liabilities.longTermLiabilities.items,
     ];
 
     if (allLiabItems.length === 0) {
-      rowSpecs.push({
-        values: ['-', 'Tidak ada kewajiban / utang pada posisi ini', 0, '-'],
-        type: 'DATA_ROW',
-      });
+      rawValues.push(['-', 'Tidak ada kewajiban / utang', 0, '-']);
     } else {
       for (const item of allLiabItems) {
-        rowSpecs.push({
-          values: [item.code, item.name, item.amount, 'Kewajiban Usaha'],
-          type: 'DATA_ROW',
-        });
+        rawValues.push([item.code, item.name, item.amount, 'Kewajiban Usaha']);
       }
     }
-    rowSpecs.push({
-      values: ['', 'TOTAL KEWAJIBAN / UTANG (A)', balanceSheet.liabilities.totalLiabilities, ''],
-      type: 'SUBTOTAL_ROW',
-    });
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
+    rawValues.push(['', 'TOTAL KEWAJIBAN / UTANG (A)', balanceSheet.liabilities.totalLiabilities, '']);
+    rawValues.push(['', '', '', '']);
 
-    // Data Ekuitas & Modal
-    rowSpecs.push({
-      values: ['B. EKUITAS & MODAL (EQUITY)', '', '', ''],
-      type: 'CATEGORY_HEADER',
-    });
+    rawValues.push(['B. EKUITAS & MODAL (EQUITY)', '', '', '']);
     for (const item of balanceSheet.equity.capital.items) {
-      rowSpecs.push({
-        values: [item.code, item.name, item.amount, 'Modal Disetor'],
-        type: 'DATA_ROW',
-      });
+      rawValues.push([item.code, item.name, item.amount, 'Modal Disetor']);
     }
-    rowSpecs.push({
-      values: [
-        '3301',
-        'Laba / Rugi Bersih Periode Berjalan',
-        balanceSheet.equity.currentPeriodProfit,
-        balanceSheet.equity.currentPeriodProfit >= 0 ? 'Surplus Berjalan' : 'Defisit Berjalan',
-      ],
-      type: 'DATA_ROW',
-    });
-    rowSpecs.push({
-      values: ['', 'TOTAL EKUITAS / MODAL (B)', balanceSheet.equity.totalEquity, ''],
-      type: 'SUBTOTAL_ROW',
-    });
+    rawValues.push([
+      '3301',
+      'Laba / Rugi Bersih Periode Berjalan',
+      balanceSheet.equity.currentPeriodProfit,
+      balanceSheet.equity.currentPeriodProfit >= 0 ? 'Surplus Berjalan' : 'Defisit Berjalan',
+    ]);
+    rawValues.push(['', 'TOTAL EKUITAS / MODAL (B)', balanceSheet.equity.totalEquity, '']);
+    rawValues.push([
+      '',
+      'TOTAL KEWAJIBAN & EKUITAS / PASIVA (A + B)',
+      balanceSheet.totalLiabilitiesAndEquity,
+      'Total Kewajiban + Modal',
+    ]);
+    rawValues.push([
+      '',
+      'KESEIMBANGAN NERACA (AKTIVA − PASIVA)',
+      balanceSheet.discrepancy,
+      balanceSheet.isBalanced ? 'SEIMBANG (BALANCED)' : 'BELUM SEIMBANG',
+    ]);
+    rawValues.push(['', '', '', '']);
+    rawValues.push(['* Catatan: Laporan Neraca ini disusun sesuai Standar Akuntansi Keuangan SAK EMKM.', '', '', '']);
 
-    // Grand Total Pasiva
-    rowSpecs.push({
-      values: [
-        '',
-        'TOTAL KEWAJIBAN & EKUITAS / PASIVA (A + B)',
-        balanceSheet.totalLiabilitiesAndEquity,
-        'Total Kewajiban + Modal',
-      ],
-      type: 'GRAND_TOTAL_LIAB',
-    });
-
-    // Keseimbangan Neraca
-    rowSpecs.push({
-      values: [
-        '',
-        'KESEIMBANGAN NERACA (AKTIVA − PASIVA)',
-        balanceSheet.discrepancy,
-        balanceSheet.isBalanced ? 'SEIMBANG (BALANCED)' : 'BELUM SEIMBANG',
-      ],
-      type: 'BALANCE_CHECK_ROW',
-      isBalanced: balanceSheet.isBalanced,
-    });
-
-    rowSpecs.push({ values: ['', '', '', ''], type: 'EMPTY' });
-    rowSpecs.push({
-      values: [
-        '* Catatan: Laporan Neraca ini disusun sesuai Standar Akuntansi Keuangan Entitas Mikro, Kecil, dan Menengah (SAK EMKM).',
-        '',
-        '',
-        '',
-      ],
-      type: 'NOTE',
-    });
-
-    // 1. Kosongkan range tab Neraca Keuangan
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
       range: 'Neraca Keuangan!A1:Z500',
     }).catch(() => {});
 
-    // 2. Tulis raw values
-    const rawValues = rowSpecs.map((r) => r.values);
     await sheets.spreadsheets.values.update({
       spreadsheetId: client.spreadsheetId,
       range: 'Neraca Keuangan!A1',
       valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: rawValues,
-      },
+      requestBody: { values: rawValues },
     });
 
-    // 3. BatchUpdate formatting
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const formatRequests: any[] = [
-      {
-        unmergeCells: {
-          range: {
-            sheetId,
-            startRowIndex: 0,
-            endRowIndex: 500,
-            startColumnIndex: 0,
-            endColumnIndex: 20,
-          },
-        },
-      },
-      {
-        repeatCell: {
-          range: {
-            sheetId,
-            startRowIndex: 0,
-            endRowIndex: rowSpecs.length + 10,
-            startColumnIndex: 0,
-            endColumnIndex: 4,
-          },
-          cell: {
-            userEnteredFormat: {
-              backgroundColor: { red: 1, green: 1, blue: 1 },
-              textFormat: {
-                fontFamily: 'Arial',
-                fontSize: 10,
-                bold: false,
-                foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 },
-              },
-              horizontalAlignment: 'LEFT',
-              verticalAlignment: 'MIDDLE',
-              wrapStrategy: 'CLIP',
-            },
-          },
-          fields: 'userEnteredFormat',
-        },
-      },
-      // Lebar Kolom Neraca
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
-          properties: { pixelSize: 120 },
-          fields: 'pixelSize',
-        },
-      },
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
-          properties: { pixelSize: 380 },
-          fields: 'pixelSize',
-        },
-      },
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 3 },
-          properties: { pixelSize: 180 },
-          fields: 'pixelSize',
-        },
-      },
-      {
-        updateDimensionProperties: {
-          range: { sheetId, dimension: 'COLUMNS', startIndex: 3, endIndex: 4 },
-          properties: { pixelSize: 220 },
-          fields: 'pixelSize',
-        },
-      },
-    ];
-
-    rowSpecs.forEach((spec, rowIndex) => {
-      if (spec.type === 'MAIN_TITLE') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.06, green: 0.09, blue: 0.16 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 13, bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                  horizontalAlignment: 'CENTER',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      } else if (spec.type === 'SUBTITLE') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.12, green: 0.16, blue: 0.23 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 10, bold: true, foregroundColor: { red: 0.89, green: 0.92, blue: 0.95 } },
-                  horizontalAlignment: 'CENTER',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      } else if (spec.type === 'TIMESTAMP') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.97, green: 0.98, blue: 0.99 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 9, italic: true, foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  horizontalAlignment: 'CENTER',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      } else if (spec.type === 'SECTION_HEADER') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.12, green: 0.16, blue: 0.23 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 11, bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } },
-                  horizontalAlignment: 'LEFT',
-                  verticalAlignment: 'MIDDLE',
-                  borders: {
-                    top: { style: 'SOLID', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                    bottom: { style: 'SOLID', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,borders)',
-            },
-          }
-        );
-      } else if (spec.type === 'TABLE_HEADER') {
-        formatRequests.push({
-          repeatCell: {
-            range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-            cell: {
-              userEnteredFormat: {
-                backgroundColor: { red: 0.95, green: 0.96, blue: 0.98 },
-                textFormat: { fontFamily: 'Arial', fontSize: 10, bold: true, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                verticalAlignment: 'MIDDLE',
-                borders: {
-                  top: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  bottom: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  left: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  right: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                },
-              },
-            },
-            fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment,borders)',
-          },
-        });
-      } else if (spec.type === 'CATEGORY_HEADER') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.97, green: 0.98, blue: 0.99 },
-                  textFormat: { fontFamily: 'Arial', fontSize: 10, bold: true, foregroundColor: { red: 0.2, green: 0.25, blue: 0.33 } },
-                  verticalAlignment: 'MIDDLE',
-                  borders: {
-                    top: { style: 'SOLID', color: { red: 0.89, green: 0.91, blue: 0.94 } },
-                    bottom: { style: 'SOLID', color: { red: 0.89, green: 0.91, blue: 0.94 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment,borders)',
-            },
-          }
-        );
-      } else if (spec.type === 'DATA_ROW') {
-        formatRequests.push(
-          // Col A (Code)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 1 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'CENTER',
-                  textFormat: { fontFamily: 'Courier New', foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat,borders)',
-            },
-          },
-          // Col B (Description)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 2 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat,borders)',
-            },
-          },
-          // Col C (Currency Amount)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 2, endColumnIndex: 3 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'RIGHT',
-                  numberFormat: { type: 'CURRENCY', pattern: '"Rp"#,##0;("Rp"#,##0);"-"' },
-                  textFormat: { bold: true, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,numberFormat,textFormat,borders)',
-            },
-          },
-          // Col D (Category tag)
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 3, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { fontSize: 9, foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  borders: { bottom: { style: 'SOLID', color: { red: 0.93, green: 0.95, blue: 0.96 } } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat,borders)',
-            },
-          }
-        );
-      } else if (spec.type === 'SUBTOTAL_ROW') {
-        formatRequests.push(
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: { red: 0.95, green: 0.96, blue: 0.98 },
-                  borders: {
-                    top: { style: 'SOLID', color: { red: 0.2, green: 0.25, blue: 0.33 } },
-                    bottom: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,borders)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 2 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { bold: true, fontSize: 10, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 2, endColumnIndex: 3 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'RIGHT',
-                  numberFormat: { type: 'CURRENCY', pattern: '"Rp"#,##0;("Rp"#,##0);"-"' },
-                  textFormat: { bold: true, fontSize: 10, foregroundColor: { red: 0.06, green: 0.09, blue: 0.16 } },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,numberFormat,textFormat)',
-            },
-          }
-        );
-      } else if (spec.type === 'GRAND_TOTAL_ASSETS' || spec.type === 'GRAND_TOTAL_LIAB') {
-        const bg =
-          spec.type === 'GRAND_TOTAL_ASSETS'
-            ? { red: 0.92, green: 0.99, blue: 0.96 } // emerald
-            : { red: 0.93, green: 0.95, blue: 0.98 }; // slate
-
-        const fg =
-          spec.type === 'GRAND_TOTAL_ASSETS'
-            ? { red: 0.02, green: 0.37, blue: 0.27 }
-            : { red: 0.06, green: 0.09, blue: 0.16 };
-
-        formatRequests.push(
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: bg,
-                  borders: {
-                    top: { style: 'SOLID_MEDIUM', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                    bottom: { style: 'DOUBLE', color: { red: 0.06, green: 0.09, blue: 0.16 } },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,borders)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 2 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { bold: true, fontSize: 11, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 2, endColumnIndex: 3 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'RIGHT',
-                  numberFormat: { type: 'CURRENCY', pattern: '"Rp"#,##0;("Rp"#,##0);"-"' },
-                  textFormat: { bold: true, fontSize: 11, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,numberFormat,textFormat)',
-            },
-          }
-        );
-      } else if (spec.type === 'BALANCE_CHECK_ROW') {
-        const bg = spec.isBalanced
-          ? { red: 0.85, green: 0.98, blue: 0.91 } // bright emerald
-          : { red: 1, green: 0.9, blue: 0.9 }; // bright rose
-
-        const fg = spec.isBalanced
-          ? { red: 0.02, green: 0.37, blue: 0.27 }
-          : { red: 0.62, green: 0.07, blue: 0.22 };
-
-        formatRequests.push(
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  backgroundColor: bg,
-                  borders: {
-                    top: { style: 'SOLID', color: fg },
-                    bottom: { style: 'SOLID', color: fg },
-                  },
-                },
-              },
-              fields: 'userEnteredFormat(backgroundColor,borders)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 2 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { bold: true, fontSize: 11, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 2, endColumnIndex: 3 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'RIGHT',
-                  numberFormat: { type: 'CURRENCY', pattern: '"Rp"#,##0;("Rp"#,##0);"-"' },
-                  textFormat: { bold: true, fontSize: 11, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,numberFormat,textFormat)',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 3, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  horizontalAlignment: 'LEFT',
-                  textFormat: { bold: true, fontSize: 10, foregroundColor: fg },
-                },
-              },
-              fields: 'userEnteredFormat(horizontalAlignment,textFormat)',
-            },
-          }
-        );
-      } else if (spec.type === 'NOTE') {
-        formatRequests.push(
-          {
-            mergeCells: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              mergeType: 'MERGE_ALL',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 0, endColumnIndex: 4 },
-              cell: {
-                userEnteredFormat: {
-                  textFormat: { fontFamily: 'Arial', fontSize: 9, italic: true, foregroundColor: { red: 0.39, green: 0.45, blue: 0.55 } },
-                  horizontalAlignment: 'LEFT',
-                  verticalAlignment: 'MIDDLE',
-                },
-              },
-              fields: 'userEnteredFormat(textFormat,horizontalAlignment,verticalAlignment)',
-            },
-          }
-        );
-      }
-    });
-
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: client.spreadsheetId,
-      requestBody: { requests: formatRequests },
-    });
-
-    console.log(`Tab "Neraca Keuangan" berhasil disinkronkan (${dateFormatted}).`);
     return { success: true, message: `Neraca Keuangan per ${dateFormatted} berhasil disinkronkan ke Google Sheets` };
   } catch (error) {
     console.error('Error syncBalanceSheetToSheet:', error);
     return { success: false, error };
   }
+}
+
+// ==========================================
+// TAB 3: LAPORAN ARUS KAS (CASH FLOW)
+// ==========================================
+
+export async function syncCashFlowToSheet(
+  startDateInput?: Date | string,
+  endDateInput?: Date | string
+) {
+  const client = getGoogleAuthClient();
+  if (!client) return { success: false, reason: 'Credentials not configured' };
+
+  const sheets = google.sheets({ version: 'v4', auth: client.auth });
+
+  try {
+    await ensureSheetHeaders();
+
+    const now = new Date();
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const cashFlow = await getCashFlowSummary(startDate, endDate);
+
+    const nowFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeStyle: 'medium' }).format(new Date());
+    const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
+
+    const rawValues: (string | number)[][] = [
+      ['LAPORAN ARUS KAS (CASH FLOW) — BUMDES BOGEM', '', '', ''],
+      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', ''],
+      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['', '', '', ''],
+      ['Kode / No', 'Pos Aktivitas Arus Kas (SAK EMKM)', 'Jumlah (Rp)', 'Kategori'],
+      ['1', 'Saldo Kas & Bank Awal Periode', cashFlow.openingCashBalance, 'Kas Awal'],
+      ['', '', '', ''],
+      ['A. ARUS KAS DARI AKTIVITAS OPERASI', '', '', ''],
+    ];
+
+    if (cashFlow.operatingActivities.inflows.length === 0) {
+      rawValues.push(['-', 'Tidak ada penerimaan operasi', 0, '-']);
+    } else {
+      for (const item of cashFlow.operatingActivities.inflows) {
+        rawValues.push([item.code, `+ Penerimaan dari ${item.name}`, item.amount, 'Penerimaan Kas']);
+      }
+    }
+
+    if (cashFlow.operatingActivities.outflows.length === 0) {
+      rawValues.push(['-', 'Tidak ada pengeluaran operasi', 0, '-']);
+    } else {
+      for (const item of cashFlow.operatingActivities.outflows) {
+        rawValues.push([item.code, `- Pembayaran untuk ${item.name}`, -item.amount, 'Pengeluaran Kas']);
+      }
+    }
+    rawValues.push(['', 'Arus Kas Bersih Aktivitas Operasi (A)', cashFlow.operatingActivities.netAmount, '']);
+    rawValues.push(['', '', '', '']);
+
+    rawValues.push(['B. ARUS KAS DARI AKTIVITAS INVESTASI', '', '', '']);
+    if (cashFlow.investingActivities.outflows.length === 0) {
+      rawValues.push(['-', 'Tidak ada transaksi investasi', 0, '-']);
+    } else {
+      for (const item of cashFlow.investingActivities.outflows) {
+        rawValues.push([item.code, `- Pembelian ${item.name}`, -item.amount, 'Pengeluaran Investasi']);
+      }
+    }
+    rawValues.push(['', 'Arus Kas Bersih Aktivitas Investasi (B)', cashFlow.investingActivities.netAmount, '']);
+    rawValues.push(['', '', '', '']);
+
+    rawValues.push(['C. ARUS KAS DARI AKTIVITAS PENDANAAN', '', '', '']);
+    if (cashFlow.financingActivities.inflows.length > 0) {
+      for (const item of cashFlow.financingActivities.inflows) {
+        rawValues.push([item.code, `+ Penerimaan ${item.name}`, item.amount, 'Penerimaan Modal']);
+      }
+    }
+    if (cashFlow.financingActivities.outflows.length > 0) {
+      for (const item of cashFlow.financingActivities.outflows) {
+        rawValues.push([item.code, `- Penarikan / Bagi Hasil ${item.name}`, -item.amount, 'Pengeluaran Modal']);
+      }
+    }
+    if (!cashFlow.financingActivities.inflows.length && !cashFlow.financingActivities.outflows.length) {
+      rawValues.push(['-', 'Tidak ada transaksi pendanaan', 0, '-']);
+    }
+    rawValues.push(['', 'Arus Kas Bersih Aktivitas Pendanaan (C)', cashFlow.financingActivities.netAmount, '']);
+    rawValues.push(['', '', '', '']);
+
+    rawValues.push(['', 'KENAIKAN / (PENURUNAN) KAS BERSIH (A + B + C)', cashFlow.netCashFlow, cashFlow.netCashFlow >= 0 ? 'Surplus Kas' : 'Defisit Kas']);
+    rawValues.push(['', 'SALDO KAS & BANK AKHIR PERIODE', cashFlow.closingCashBalance, 'Kas Riil BUMDes']);
+    rawValues.push(['', '', '', '']);
+    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '']);
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Laporan Arus Kas!A1:Z500',
+    }).catch(() => {});
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Laporan Arus Kas!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rawValues },
+    });
+
+    return { success: true, message: 'Laporan Arus Kas berhasil disinkronkan ke Google Sheets' };
+  } catch (error) {
+    console.error('Error syncCashFlowToSheet:', error);
+    return { success: false, error };
+  }
+}
+
+// ==========================================
+// TAB 4: LAPORAN PERUBAHAN MODAL
+// ==========================================
+
+export async function syncEquityStatementToSheet(
+  startDateInput?: Date | string,
+  endDateInput?: Date | string
+) {
+  const client = getGoogleAuthClient();
+  if (!client) return { success: false, reason: 'Credentials not configured' };
+
+  const sheets = google.sheets({ version: 'v4', auth: client.auth });
+
+  try {
+    await ensureSheetHeaders();
+
+    const now = new Date();
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const equityStatement = await getEquityStatement(startDate, endDate);
+
+    const nowFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeStyle: 'medium' }).format(new Date());
+    const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
+
+    const rawValues: (string | number)[][] = [
+      ['LAPORAN PERUBAHAN MODAL (EKUITAS) — BUMDES BOGEM', '', '', ''],
+      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', ''],
+      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['', '', '', ''],
+      ['No', 'Uraian / Pos Perubahan Ekuitas', 'Jumlah (Rp)', 'Keterangan'],
+      ['1', `Modal Awal Periode (Per ${formatDateIndo(startDate)})`, equityStatement.beginningCapital, 'Modal Awal'],
+      ['•', `Laba / (Rugi) Bersih Periode Berjalan`, equityStatement.netIncome, equityStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi'],
+      ['•', `Penambahan Modal / Investasi Baru BUMDes`, equityStatement.additionalCapital, 'Setoran Modal'],
+      ['•', `Penarikan Modal / Bagi Hasil PADes Desa Bogem`, -equityStatement.withdrawals, 'Prive / Bagi Hasil'],
+      ['2', `Kenaikan / (Penurunan) Modal Bersih`, equityStatement.netChange, equityStatement.netChange >= 0 ? 'Kenaikan Modal' : 'Penurunan Modal'],
+      ['3', `MODAL AKHIR PERIODE (TOTAL EKUITAS NERACA)`, equityStatement.endingCapital, 'Total Ekuitas Akhir'],
+      ['', '', '', ''],
+      ['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', ''],
+    ];
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Laporan Perubahan Modal!A1:Z500',
+    }).catch(() => {});
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Laporan Perubahan Modal!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rawValues },
+    });
+
+    return { success: true, message: 'Laporan Perubahan Modal berhasil disinkronkan ke Google Sheets' };
+  } catch (error) {
+    console.error('Error syncEquityStatementToSheet:', error);
+    return { success: false, error };
+  }
+}
+
+// ==========================================
+// TAB 5: BUKU BESAR KAS (GENERAL CASH LEDGER)
+// ==========================================
+
+export async function syncGeneralLedgerToSheet(
+  startDateInput?: Date | string,
+  endDateInput?: Date | string
+) {
+  const client = getGoogleAuthClient();
+  if (!client) return { success: false, reason: 'Credentials not configured' };
+
+  const sheets = google.sheets({ version: 'v4', auth: client.auth });
+
+  try {
+    await ensureSheetHeaders();
+
+    const now = new Date();
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const kasAccount = await prisma.account.findFirst({
+      where: { code: '1001' },
+    }) || await prisma.account.findFirst();
+
+    if (!kasAccount) return { success: false, reason: 'Akun kas tidak ditemukan' };
+
+    const gl = await getGeneralLedger(kasAccount.id, startDate, endDate);
+
+    const nowFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeStyle: 'medium' }).format(new Date());
+    const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
+
+    const rawValues: (string | number)[][] = [
+      ['BUKU BESAR KAS (BUKU KAS UMUM) — BUMDES BOGEM', '', '', '', '', ''],
+      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', '', '', ''],
+      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', '', '', ''],
+      ['', '', '', '', '', ''],
+      ['Tanggal', 'Keterangan Mutasi', 'Petugas', 'Debit (Rp)', 'Kredit (Rp)', 'Saldo Kas (Rp)'],
+      [formatDateIndo(startDate), 'SALDO AWAL KAS', 'Sistem', '-', '-', gl.openingBalance],
+    ];
+
+    if (gl.entries.length === 0) {
+      rawValues.push(['-', 'Tidak ada mutasi kas pada periode ini', '-', 0, 0, gl.openingBalance]);
+    } else {
+      for (const item of gl.entries) {
+        rawValues.push([
+          formatDateIndo(item.date),
+          item.description,
+          item.creatorName,
+          item.debit > 0 ? item.debit : '-',
+          item.credit > 0 ? item.credit : '-',
+          item.runningBalance,
+        ]);
+      }
+    }
+
+    rawValues.push(['', 'TOTAL MUTASI & SALDO AKHIR', '', gl.totalDebit, gl.totalCredit, gl.closingBalance]);
+    rawValues.push(['', '', '', '', '', '']);
+    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '', '', '']);
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Buku Besar Kas!A1:Z1000',
+    }).catch(() => {});
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Buku Besar Kas!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rawValues },
+    });
+
+    return { success: true, message: 'Buku Besar Kas berhasil disinkronkan ke Google Sheets' };
+  } catch (error) {
+    console.error('Error syncGeneralLedgerToSheet:', error);
+    return { success: false, error };
+  }
+}
+
+// ==========================================
+// SINKRONISASI SELURUH LAPORAN KE GOOGLE SHEETS
+// ==========================================
+
+export async function syncAllFinancialReportsToSheet(options?: {
+  year?: number;
+  month?: number;
+  periodType?: 'month' | 'year' | 'all';
+}) {
+  const client = getGoogleAuthClient();
+  if (!client) return { success: false, reason: 'Credentials not configured' };
+
+  const now = new Date();
+  const year = options?.year !== undefined ? options.year : now.getFullYear();
+  const month = options?.month !== undefined ? options.month : now.getMonth();
+  const periodType = options?.periodType || 'month';
+
+  let startDate: Date;
+  let endDate: Date;
+
+  if (periodType === 'all') {
+    startDate = new Date(2020, 0, 1);
+    endDate = new Date(year, 11, 31, 23, 59, 59);
+  } else if (periodType === 'year') {
+    startDate = new Date(year, 0, 1);
+    endDate = new Date(year, 11, 31, 23, 59, 59);
+  } else {
+    startDate = new Date(year, month, 1);
+    endDate = new Date(year, month + 1, 0, 23, 59, 59);
+  }
+
+  try {
+    // Jalankan secara sekuensial agar tidak membebani connection pool Supabase
+    const incRes = await syncIncomeStatementToSheet(startDate, endDate);
+    const balRes = await syncBalanceSheetToSheet(endDate);
+    const cfRes = await syncCashFlowToSheet(startDate, endDate);
+    const eqRes = await syncEquityStatementToSheet(startDate, endDate);
+    const glRes = await syncGeneralLedgerToSheet(startDate, endDate);
+
+    const allSuccess = incRes.success && balRes.success && cfRes.success && eqRes.success && glRes.success;
+
+    return {
+      success: allSuccess,
+      message: 'Seluruh lembar laporan (Laba Rugi, Neraca, Arus Kas, Perubahan Modal, dan Buku Besar Kas) berhasil disinkronkan ke Google Sheets',
+      details: { incRes, balRes, cfRes, eqRes, glRes },
+    };
+  } catch (error) {
+    console.error('Error in syncAllFinancialReportsToSheet:', error);
+    return { success: false, error };
+  }
+}
+
+// Backward compatibility alias
+export async function syncMonthlyFinancialReportToSheet(targetYear?: number, targetMonth?: number) {
+  return syncAllFinancialReportsToSheet({ year: targetYear, month: targetMonth });
 }
 
 // ==========================================
@@ -1724,46 +838,78 @@ export async function retryPendingSync() {
     });
 
     if (pendingTransactions.length > 0) {
-      const rows = pendingTransactions.map((trx) => [
-        formatDateIndo(trx.date),
-        trx.type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar',
-        trx.category,
-        trx.description,
-        Number(trx.amount),
-        trx.createdBy?.name || 'Petugas',
-        trx.id,
-      ]);
-
-      const res = await sheets.spreadsheets.values.append({
+      // Ambil seluruh ID Transaksi yang telah tercatat di Google Sheets (Kolom G) untuk mencegah duplikasi baris
+      const existingSheetData = await sheets.spreadsheets.values.get({
         spreadsheetId: client.spreadsheetId,
-        range: 'Pembukuan!A:G',
-        valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
-        requestBody: {
-          values: rows,
-        },
-      });
+        range: 'Pembukuan!G:G',
+      }).catch(() => null);
 
-      if (res.status === 200) {
+      const existingIds = new Set<string>(
+        (existingSheetData?.data.values || [])
+          .map((row) => (row[0] ? String(row[0]).trim() : ''))
+          .filter(Boolean)
+      );
+
+      const toAppend: typeof pendingTransactions = [];
+      const alreadyPresentIds: string[] = [];
+
+      for (const trx of pendingTransactions) {
+        if (existingIds.has(trx.id)) {
+          alreadyPresentIds.push(trx.id);
+        } else {
+          toAppend.push(trx);
+        }
+      }
+
+      // Tandai yang sudah ada di sheet sebagai synced
+      if (alreadyPresentIds.length > 0) {
         await prisma.transaction.updateMany({
-          where: { id: { in: pendingTransactions.map((t) => t.id) } },
+          where: { id: { in: alreadyPresentIds } },
           data: { syncedToSheet: true },
         });
-        syncedCount += pendingTransactions.length;
-      } else {
-        failedCount += pendingTransactions.length;
+        syncedCount += alreadyPresentIds.length;
+      }
+
+      // Append yang benar-benar baru
+      if (toAppend.length > 0) {
+        const rows = toAppend.map((trx) => [
+          formatDateIndo(trx.date),
+          trx.type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar',
+          trx.category,
+          trx.description,
+          Number(trx.amount),
+          trx.createdBy?.name || 'Petugas',
+          trx.id,
+        ]);
+
+        const res = await sheets.spreadsheets.values.append({
+          spreadsheetId: client.spreadsheetId,
+          range: 'Pembukuan!A:G',
+          valueInputOption: 'USER_ENTERED',
+          insertDataOption: 'INSERT_ROWS',
+          requestBody: {
+            values: rows,
+          },
+        });
+
+        if (res.status === 200) {
+          await prisma.transaction.updateMany({
+            where: { id: { in: toAppend.map((t) => t.id) } },
+            data: { syncedToSheet: true },
+          });
+          syncedCount += toAppend.length;
+        } else {
+          failedCount += toAppend.length;
+        }
       }
     }
 
-    // 2. Perbarui Tab Laporan Bulanan & Tab Neraca Keuangan secara paralel
-    await Promise.all([
-      syncMonthlyFinancialReportToSheet().catch(() => {}),
-      syncBalanceSheetToSheet().catch(() => {}),
-    ]);
+    // 2. Perbarui seluruh Tab Laporan secara paralel
+    await syncAllFinancialReportsToSheet().catch(() => {});
 
     return {
       success: failedCount === 0,
-      message: `Berhasil menyinkronkan ${syncedCount} transaksi serta memperbarui Laporan Bulanan & Neraca ke Google Sheets.${
+      message: `Berhasil menyinkronkan ${syncedCount} transaksi serta memperbarui seluruh lembar laporan ke Google Sheets.${
         failedCount > 0 ? ` (${failedCount} gagal)` : ''
       }`,
       syncedCount,
@@ -1798,3 +944,4 @@ export async function clearOrderRow(sheetRowId?: number | null, orderId?: string
   void orderId;
   return { success: true };
 }
+

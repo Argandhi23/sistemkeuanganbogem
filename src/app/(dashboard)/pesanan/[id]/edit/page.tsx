@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
@@ -20,6 +20,8 @@ export default function EditPesananPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
 
+  const isSubmittingRef = useRef(false);
+  const isDeletingRef = useRef(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [eventDate, setEventDate] = useState('');
@@ -69,6 +71,8 @@ export default function EditPesananPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || isLoading) return;
+
     setError(null);
 
     if (!customerName.trim()) {
@@ -96,6 +100,7 @@ export default function EditPesananPage() {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsLoading(true);
 
     try {
@@ -125,11 +130,15 @@ export default function EditPesananPage() {
       setError('Terjadi kesalahan jaringan saat menyimpan');
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
   const handleDelete = async () => {
+    if (isDeletingRef.current || isDeleting) return;
+
     try {
+      isDeletingRef.current = true;
       setIsDeleting(true);
       const res = await fetch(`/api/pesanan/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -144,6 +153,7 @@ export default function EditPesananPage() {
       setShowDeleteModal(false);
     } finally {
       setIsDeleting(false);
+      isDeletingRef.current = false;
     }
   };
 
