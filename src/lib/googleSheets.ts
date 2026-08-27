@@ -101,6 +101,7 @@ const HEADERS_CACHE_TTL = 30 * 60 * 1000; // 30 menit
 
 const REQUIRED_SHEET_TABS = [
   'Pembukuan',
+  'Laporan Bulanan',
   'Laporan Laba Rugi',
   'Neraca Keuangan',
   'Laporan Arus Kas',
@@ -164,6 +165,324 @@ export async function ensureSheetHeaders(force = false) {
   }
 }
 
+/**
+ * Helper Canggih: Menerapkan Styling Premium (Navy Theme, Borders, Number Formatting, Auto Merging)
+ */
+async function applyPremiumFormatting(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetTitle: string,
+  options: {
+    maxCols: number;
+    colWidths: number[];
+    titleRowsCount: number;
+    headerRowIndex?: number;
+    sectionBannerRows?: number[];
+    currencyCols?: number[];
+    centerCols?: number[];
+    numberCols?: number[];
+    highlightRows?: { rowIndex: number; type: 'green' | 'blue' | 'gray' }[];
+    totalRows?: number[];
+    totalRowCount: number;
+  }
+) {
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetTitle);
+    if (!sheet?.properties?.sheetId && sheet?.properties?.sheetId !== 0) return;
+    const sheetId = sheet.properties.sheetId;
+
+    const requests: sheets_v4.Schema$Request[] = [];
+
+    // 1. Reset Lebar Kolom
+    options.colWidths.forEach((pixelSize, index) => {
+      requests.push({
+        updateDimensionProperties: {
+          range: {
+            sheetId,
+            dimension: 'COLUMNS',
+            startIndex: index,
+            endIndex: index + 1,
+          },
+          properties: { pixelSize },
+          fields: 'pixelSize',
+        },
+      });
+    });
+
+    // 2. Clear default format & unmerge range awal
+    requests.push({
+      unmergeCells: {
+        range: {
+          sheetId,
+          startRowIndex: 0,
+          endRowIndex: options.totalRowCount + 10,
+          startColumnIndex: 0,
+          endColumnIndex: options.maxCols + 2,
+        },
+      },
+    });
+
+    // 3. Format Title Header (Navy Dark #0F172A, White Text, Centered, Merged)
+    for (let r = 0; r < options.titleRowsCount; r++) {
+      requests.push({
+        mergeCells: {
+          range: {
+            sheetId,
+            startRowIndex: r,
+            endRowIndex: r + 1,
+            startColumnIndex: 0,
+            endColumnIndex: options.maxCols,
+          },
+          mergeType: 'MERGE_ALL',
+        },
+      });
+
+      requests.push({
+        repeatCell: {
+          range: {
+            sheetId,
+            startRowIndex: r,
+            endRowIndex: r + 1,
+            startColumnIndex: 0,
+            endColumnIndex: options.maxCols,
+          },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 15 / 255, green: 23 / 255, blue: 42 / 255 }, // #0F172A
+              horizontalAlignment: 'CENTER',
+              textFormat: {
+                foregroundColor: { red: 1, green: 1, blue: 1 },
+                fontSize: r === 0 ? 12 : r === 1 ? 10 : 9,
+                bold: r === 0 || r === 2,
+                italic: r === 1 || r === 3,
+              },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+        },
+      });
+    }
+
+    // 4. Format Column Header Row
+    if (options.headerRowIndex !== undefined) {
+      requests.push({
+        repeatCell: {
+          range: {
+            sheetId,
+            startRowIndex: options.headerRowIndex,
+            endRowIndex: options.headerRowIndex + 1,
+            startColumnIndex: 0,
+            endColumnIndex: options.maxCols,
+          },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 30 / 255, green: 41 / 255, blue: 59 / 255 }, // #1E293B
+              horizontalAlignment: 'CENTER',
+              textFormat: {
+                foregroundColor: { red: 1, green: 1, blue: 1 },
+                fontSize: 10,
+                bold: true,
+              },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+        },
+      });
+    }
+
+    // 5. Format Section Banners (misal: "I. LAPORAN LABA RUGI")
+    if (options.sectionBannerRows) {
+      options.sectionBannerRows.forEach((r) => {
+        requests.push({
+          mergeCells: {
+            range: {
+              sheetId,
+              startRowIndex: r,
+              endRowIndex: r + 1,
+              startColumnIndex: 0,
+              endColumnIndex: options.maxCols,
+            },
+            mergeType: 'MERGE_ALL',
+          },
+        });
+        requests.push({
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: r,
+              endRowIndex: r + 1,
+              startColumnIndex: 0,
+              endColumnIndex: options.maxCols,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: { red: 15 / 255, green: 23 / 255, blue: 42 / 255 }, // #0F172A
+                horizontalAlignment: 'LEFT',
+                textFormat: {
+                  foregroundColor: { red: 1, green: 1, blue: 1 },
+                  fontSize: 10,
+                  bold: true,
+                },
+              },
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)',
+          },
+        });
+      });
+    }
+
+    // 6. Format Numbering Integer Columns (agar No: 1, 2, 3 tidak jadi 31/12/1899)
+    if (options.numberCols) {
+      options.numberCols.forEach((colIdx) => {
+        requests.push({
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: (options.headerRowIndex ?? 0) + 1,
+              endRowIndex: options.totalRowCount,
+              startColumnIndex: colIdx,
+              endColumnIndex: colIdx + 1,
+            },
+            cell: {
+              userEnteredFormat: {
+                horizontalAlignment: 'CENTER',
+                numberFormat: {
+                  type: 'NUMBER',
+                  pattern: '0',
+                },
+              },
+            },
+            fields: 'userEnteredFormat(horizontalAlignment,numberFormat)',
+          },
+        });
+      });
+    }
+
+    // 7. Format Center Columns (misal Tanggal, Kode Akun, Petugas)
+    if (options.centerCols) {
+      options.centerCols.forEach((colIdx) => {
+        requests.push({
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: (options.headerRowIndex ?? 0) + 1,
+              endRowIndex: options.totalRowCount,
+              startColumnIndex: colIdx,
+              endColumnIndex: colIdx + 1,
+            },
+            cell: {
+              userEnteredFormat: {
+                horizontalAlignment: 'CENTER',
+              },
+            },
+            fields: 'userEnteredFormat(horizontalAlignment)',
+          },
+        });
+      });
+    }
+
+    // 8. Format Currency Columns (Rp Rupiah)
+    if (options.currencyCols) {
+      options.currencyCols.forEach((colIdx) => {
+        requests.push({
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: (options.headerRowIndex ?? 0) + 1,
+              endRowIndex: options.totalRowCount,
+              startColumnIndex: colIdx,
+              endColumnIndex: colIdx + 1,
+            },
+            cell: {
+              userEnteredFormat: {
+                horizontalAlignment: 'RIGHT',
+                numberFormat: {
+                  type: 'CURRENCY',
+                  pattern: '"Rp"#,##0;("Rp"#,##0);"-"',
+                },
+              },
+            },
+            fields: 'userEnteredFormat(horizontalAlignment,numberFormat)',
+          },
+        });
+      });
+    }
+
+    // 9. Format Highlight Rows (Green untuk Laba Bersih & Seimbang)
+    if (options.highlightRows) {
+      options.highlightRows.forEach(({ rowIndex, type }) => {
+        const isGreen = type === 'green';
+        requests.push({
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: rowIndex,
+              endRowIndex: rowIndex + 1,
+              startColumnIndex: 0,
+              endColumnIndex: options.maxCols,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: isGreen
+                  ? { red: 236 / 255, green: 253 / 255, blue: 245 / 255 } // #ECFDF5
+                  : { red: 241 / 255, green: 245 / 255, blue: 249 / 255 },
+                textFormat: {
+                  foregroundColor: isGreen
+                    ? { red: 4 / 255, green: 120 / 255, blue: 87 / 255 } // #047857
+                    : { red: 15 / 255, green: 23 / 255, blue: 42 / 255 },
+                  bold: true,
+                },
+                borders: {
+                  top: { style: 'SOLID', color: { red: 0.7, green: 0.7, blue: 0.7 } },
+                  bottom: { style: 'SOLID', color: { red: 0.7, green: 0.7, blue: 0.7 } },
+                },
+              },
+            },
+            fields: 'userEnteredFormat(backgroundColor,textFormat,borders)',
+          },
+        });
+      });
+    }
+
+    // 10. Format Total Rows (Subtotals & Grand Totals)
+    if (options.totalRows) {
+      options.totalRows.forEach((r) => {
+        requests.push({
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: r,
+              endRowIndex: r + 1,
+              startColumnIndex: 0,
+              endColumnIndex: options.maxCols,
+            },
+            cell: {
+              userEnteredFormat: {
+                textFormat: { bold: true },
+                borders: {
+                  top: { style: 'SOLID', color: { red: 0.6, green: 0.6, blue: 0.6 } },
+                  bottom: { style: 'DOUBLE', color: { red: 0.2, green: 0.2, blue: 0.2 } },
+                },
+              },
+            },
+            fields: 'userEnteredFormat(textFormat,borders)',
+          },
+        });
+      });
+    }
+
+    if (requests.length > 0) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: { requests },
+      });
+    }
+  } catch (err) {
+    console.warn(`Gagal menerapkan premium format pada sheet "${sheetTitle}":`, err);
+  }
+}
+
 // ==========================================
 // TRANSAKSI KAS (PEMBUKUAN) - BUKU KAS UMUM
 // ==========================================
@@ -201,15 +520,15 @@ export async function appendTransactionRow(
       trx.accountCode || (isIncome ? '4001' : '5001'),
       trx.accountName || trx.category,
       trx.description,
-      debit > 0 ? debit : '-',
-      credit > 0 ? credit : '-',
+      debit,
+      credit,
       userName,
       trx.id,
     ];
 
     const res = await sheets.spreadsheets.values.append({
       spreadsheetId: client.spreadsheetId,
-      range: 'Pembukuan!A:I',
+      range: 'Pembukuan!B:J',
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: {
@@ -278,15 +597,15 @@ export async function updateTransactionRow(
       trx.accountCode || (isIncome ? '4001' : '5001'),
       trx.accountName || trx.category,
       trx.description,
-      debit > 0 ? debit : '-',
-      credit > 0 ? credit : '-',
+      debit,
+      credit,
       userName,
       trx.id,
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: client.spreadsheetId,
-      range: `Pembukuan!A${targetRow}:I${targetRow}`,
+      range: `Pembukuan!B${targetRow}:J${targetRow}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [rowData],
@@ -366,7 +685,7 @@ export async function clearTransactionRow(sheetRowId?: number | null, trxId?: st
 
 /**
  * Membersihkan seluruh tab Pembukuan dan mengisi ulang secara kronologis
- * lengkap dengan Saldo Kas Berjalan (Running Balance) dan kode akun terstandar
+ * dengan format nomor integer (No), Saldo Kas Berjalan, dan Navy Header rapi
  */
 export async function compactPembukuanSheet() {
   const client = getGoogleAuthClient();
@@ -393,8 +712,8 @@ export async function compactPembukuanSheet() {
     const titleBlock = [
       ['PEMERINTAH DESA BOGEM — BADAN USAHA MILIK DESA (BUMDES) BOGEM', '', '', '', '', '', '', '', '', '', ''],
       ['UNIT USAHA CATERING & PELAYANAN KONSUMSI', '', '', '', '', '', '', '', '', '', ''],
-      ['BUKU KAS UMUM (CATATAN SELURUH TRANSAKSI MUTASI KAS MASUK & KELUAR)', '', '', '', '', '', '', '', '', '', ''],
-      [`Data Kronologis Mencakup Tahun 2025 s/d Sekarang • Waktu Sinkronisasi: ${nowFormatted}`, '', '', '', '', '', '', '', '', '', ''],
+      ['BUKU KAS UMUM (CATATAN TRANSAKSI MUTASI KAS KRONOLOGIS)', '', '', '', '', '', '', '', '', '', ''],
+      [`Data Mencakup Tahun 2025 s/d Sekarang • Waktu Sinkronisasi: ${nowFormatted}`, '', '', '', '', '', '', '', '', '', ''],
       ['', '', '', '', '', '', '', '', '', '', ''],
     ];
 
@@ -437,8 +756,8 @@ export async function compactPembukuanSheet() {
         trx.account?.code || (isIncome ? '4001' : '5001'),
         trx.account?.name || trx.category,
         trx.description,
-        debit > 0 ? debit : '-',
-        credit > 0 ? credit : '-',
+        debit,
+        credit,
         runningBalance,
         trx.createdBy?.name || 'Petugas',
         trx.id,
@@ -490,10 +809,20 @@ export async function compactPembukuanSheet() {
       data: { syncedToSheet: true },
     });
 
-    // Atur lebar kolom proporsional
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Pembukuan', [
-      50, 110, 130, 90, 230, 320, 160, 160, 170, 160, 220,
-    ]);
+    // Terapkan Premium Formatting
+    const totalRowIndex = titleBlock.length + 1 + rows.length;
+    await applyPremiumFormatting(sheets, client.spreadsheetId, 'Pembukuan', {
+      maxCols: 11,
+      colWidths: [45, 105, 130, 85, 220, 280, 150, 150, 160, 130, 150],
+      titleRowsCount: 4,
+      headerRowIndex: 5,
+      numberCols: [0], // Column A is purely integer 0
+      centerCols: [1, 2, 3, 9, 10], // Tanggal, Jenis, Kode, Petugas, ID
+      currencyCols: [6, 7, 8], // Debit, Kredit, Saldo
+      totalRows: [totalRowIndex],
+      highlightRows: [{ rowIndex: totalRowIndex, type: 'gray' }],
+      totalRowCount: allValues.length,
+    });
 
     return { success: true, count: rows.length };
   } catch (error) {
@@ -511,6 +840,158 @@ export function triggerDebouncedReportSync(targetYear?: number) {
   debounceReportSyncTimer = setTimeout(() => {
     syncAllFinancialReportsToSheet({ year: targetYear }).catch(() => {});
   }, 4000);
+}
+
+// ==========================================
+// TAB: LAPORAN BULANAN (REKAP KEUANGAN BULANAN)
+// ==========================================
+
+export async function syncMonthlyFinancialReportToSheet(targetYear?: number, targetMonth?: number) {
+  const client = getGoogleAuthClient();
+  if (!client) return { success: false, reason: 'Credentials not configured' };
+
+  const sheets = google.sheets({ version: 'v4', auth: client.auth });
+
+  try {
+    await ensureSheetHeaders();
+
+    const now = new Date();
+    const year = targetYear || now.getFullYear();
+    const month = targetMonth !== undefined ? targetMonth : now.getMonth();
+
+    const startDate = new Date(year, month, 1);
+    const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
+
+    const [incomeStatement, cashFlow, balanceSheet] = await Promise.all([
+      getIncomeStatement(startDate, endDate),
+      getCashFlowSummary(startDate, endDate),
+      getBalanceSheet(endDate),
+    ]);
+
+    const monthNames = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    const periodTitle = `${monthNames[month]} ${year}`;
+    const nowFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'full', timeStyle: 'medium' }).format(new Date());
+
+    const rawValues: (string | number)[][] = [
+      ['LAPORAN KEUANGAN KAS BULANAN — BUMDES BOGEM', '', '', ''],
+      [`Unit Usaha Catering Desa Bogem • Periode: ${periodTitle}`, '', '', ''],
+      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['', '', '', ''],
+      ['I. LAPORAN LABA RUGI (INCOME STATEMENT)', '', '', ''],
+      ['Kode Akun', 'Nama Akun / Pos Keuangan', 'Jumlah (Rp)', 'Keterangan'],
+      ['A. PENDAPATAN USAHA CATERING', '', '', ''],
+    ];
+
+    if (incomeStatement.revenue.accounts.length === 0) {
+      rawValues.push(['', 'Tidak ada pendapatan pada periode ini', 0, 'Belum ada transaksi']);
+    } else {
+      for (const acc of incomeStatement.revenue.accounts) {
+        rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
+      }
+    }
+    const totalRevRowIdx = rawValues.length;
+    rawValues.push(['', 'TOTAL PENDAPATAN (A)', incomeStatement.revenue.total, '']);
+    rawValues.push(['', '', '', '']);
+
+    rawValues.push(['B. BEBAN OPERASIONAL', '', '', '']);
+    if (incomeStatement.operatingExpenses.accounts.length === 0) {
+      rawValues.push(['', 'Tidak ada beban operasional pada periode ini', 0, 'Belum ada transaksi']);
+    } else {
+      for (const acc of incomeStatement.operatingExpenses.accounts) {
+        rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
+      }
+    }
+    const totalExpRowIdx = rawValues.length;
+    rawValues.push(['', 'TOTAL BEBAN OPERASIONAL (B)', incomeStatement.operatingExpenses.total, '']);
+    rawValues.push(['', 'LABA OPERASIONAL / KOTOR (A dikurangi B)', incomeStatement.grossOperatingProfit, '']);
+    rawValues.push(['', '', '', '']);
+
+    rawValues.push(['C. BEBAN NON-OPERASIONAL', '', '', '']);
+    if (incomeStatement.nonOperatingExpenses.accounts.length === 0) {
+      rawValues.push(['', 'Tidak ada beban non-operasional pada periode ini', 0, 'Belum ada transaksi']);
+    } else {
+      for (const acc of incomeStatement.nonOperatingExpenses.accounts) {
+        rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
+      }
+    }
+    rawValues.push(['', 'TOTAL BEBAN NON-OPERASIONAL (C)', incomeStatement.nonOperatingExpenses.total, '']);
+    
+    const netIncomeRowIdx = rawValues.length;
+    rawValues.push([
+      '',
+      'LABA / (RUGI) BERSIH PERIODE BERJALAN',
+      incomeStatement.netIncome,
+      incomeStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi',
+    ]);
+    rawValues.push(['', '', '', '']);
+
+    // Section II: Arus Kas
+    const section2RowIdx = rawValues.length;
+    rawValues.push(['II. REKAPITULASI ARUS KAS (CASH FLOW)', '', '', '']);
+    rawValues.push(['No', 'Pos Aliran Kas', 'Jumlah (Rp)', 'Keterangan / Status Kas']);
+    rawValues.push(['1', 'Saldo Kas Awal Periode', cashFlow.openingCashBalance, 'Kas awal periode']);
+    rawValues.push(['2', 'Total Penerimaan Kas Operasi', cashFlow.operatingActivities.totalInflow, 'Penerimaan operasional']);
+    rawValues.push(['3', 'Total Pengeluaran Kas Operasi', cashFlow.operatingActivities.totalOutflow, 'Pengeluaran operasional']);
+    rawValues.push(['4', 'Arus Kas Bersih Operasional', cashFlow.operatingActivities.netAmount, '']);
+    rawValues.push(['5', 'Arus Kas Bersih Investasi & Modal', cashFlow.investingActivities.netAmount + cashFlow.financingActivities.netAmount, '']);
+    
+    const endingCashRowIdx = rawValues.length;
+    rawValues.push(['', 'SALDO KAS AKHIR PERIODE (REKONSILIASI KAS NERACA)', cashFlow.closingCashBalance, 'Kas Riil BUMDes']);
+    rawValues.push(['', '', '', '']);
+
+    // Section III: Neraca Ringkas
+    const section3RowIdx = rawValues.length;
+    rawValues.push(['III. RINGKASAN POSISI KEUANGAN (NERACA KAS)', '', '', '']);
+    rawValues.push(['Pos Neraca', 'Uraian Akuntansi', 'Jumlah (Rp)', 'Status Keseimbangan']);
+    rawValues.push(['Total Aset / Aktiva', 'Seluruh Kekayaan Kas & Aset Usaha', balanceSheet.assets.totalAssets, 'Aktiva']);
+    rawValues.push(['Total Kewajiban & Modal', 'Kewajiban Ditambah Ekuitas Akhir', balanceSheet.totalLiabilitiesAndEquity, 'Pasiva']);
+    
+    const balanceRowIdx = rawValues.length;
+    rawValues.push([
+      'Keseimbangan Neraca',
+      balanceSheet.isBalanced ? 'Neraca Seimbang (Aktiva = Pasiva)' : 'Perlu Penyesuaian',
+      balanceSheet.discrepancy,
+      balanceSheet.isBalanced ? 'SEIMBANG (BALANCED)' : 'BELUM SEIMBANG',
+    ]);
+    rawValues.push(['', '', '', '']);
+    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '']);
+    rawValues.push(...getSignatureBlock());
+
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Laporan Bulanan!A1:Z500',
+    }).catch(() => {});
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Laporan Bulanan!A1',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rawValues },
+    });
+
+    await applyPremiumFormatting(sheets, client.spreadsheetId, 'Laporan Bulanan', {
+      maxCols: 4,
+      colWidths: [110, 340, 180, 220],
+      titleRowsCount: 3,
+      sectionBannerRows: [4, section2RowIdx, section3RowIdx],
+      centerCols: [0, 3],
+      currencyCols: [2],
+      totalRows: [totalRevRowIdx, totalExpRowIdx, endingCashRowIdx],
+      highlightRows: [
+        { rowIndex: netIncomeRowIdx, type: 'green' },
+        { rowIndex: balanceRowIdx, type: 'green' },
+      ],
+      totalRowCount: rawValues.length,
+    });
+
+    return { success: true, message: `Laporan Bulanan (${periodTitle}) berhasil disinkronkan ke Google Sheets` };
+  } catch (error) {
+    console.error('Error syncMonthlyFinancialReportToSheet:', error);
+    return { success: false, error };
+  }
 }
 
 // ==========================================
@@ -544,41 +1025,45 @@ export async function syncIncomeStatementToSheet(
       ['LAPORAN LABA RUGI (STANDAR AKUNTANSI KEUANGAN SAK EMKM)', '', '', ''],
       [`Periode: ${periodFormatted} • Sinkronisasi: ${nowFormatted}`, '', '', ''],
       ['', '', '', ''],
-      ['Kode Akun', 'Pos Akuntansi / Keterangan', 'Jumlah (Rp)', 'Rincian Transaksi'],
+      ['Kode Akun', 'Pos Akuntansi / Pos Keuangan', 'Jumlah (Rp)', 'Rincian Transaksi'],
       ['A. PENDAPATAN USAHA CATERING', '', '', ''],
     ];
 
     if (incomeStatement.revenue.accounts.length === 0) {
-      rawValues.push(['-', 'Tidak ada pendapatan pada periode ini', 0, '-']);
+      rawValues.push(['', 'Tidak ada pendapatan pada periode ini', 0, 'Belum ada transaksi']);
     } else {
       for (const acc of incomeStatement.revenue.accounts) {
         rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
       }
     }
+    const revTotalRowIdx = rawValues.length;
     rawValues.push(['', 'TOTAL PENDAPATAN USAHA (A)', incomeStatement.revenue.total, '']);
     rawValues.push(['', '', '', '']);
 
     rawValues.push(['B. BEBAN OPERASIONAL', '', '', '']);
     if (incomeStatement.operatingExpenses.accounts.length === 0) {
-      rawValues.push(['-', 'Tidak ada beban operasional pada periode ini', 0, '-']);
+      rawValues.push(['', 'Tidak ada beban operasional pada periode ini', 0, 'Belum ada transaksi']);
     } else {
       for (const acc of incomeStatement.operatingExpenses.accounts) {
         rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
       }
     }
+    const expTotalRowIdx = rawValues.length;
     rawValues.push(['', 'TOTAL BEBAN OPERASIONAL (B)', incomeStatement.operatingExpenses.total, '']);
-    rawValues.push(['', 'LABA OPERASIONAL / KOTOR (A − B)', incomeStatement.grossOperatingProfit, '']);
+    rawValues.push(['', 'LABA OPERASIONAL / KOTOR (A dikurangi B)', incomeStatement.grossOperatingProfit, '']);
     rawValues.push(['', '', '', '']);
 
     rawValues.push(['C. BEBAN NON-OPERASIONAL', '', '', '']);
     if (incomeStatement.nonOperatingExpenses.accounts.length === 0) {
-      rawValues.push(['-', 'Tidak ada beban non-operasional pada periode ini', 0, '-']);
+      rawValues.push(['', 'Tidak ada beban non-operasional pada periode ini', 0, 'Belum ada transaksi']);
     } else {
       for (const acc of incomeStatement.nonOperatingExpenses.accounts) {
         rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
       }
     }
     rawValues.push(['', 'TOTAL BEBAN NON-OPERASIONAL (C)', incomeStatement.nonOperatingExpenses.total, '']);
+    
+    const netIncomeRowIdx = rawValues.length;
     rawValues.push([
       '',
       'LABA / (RUGI) BERSIH PERIODE BERJALAN',
@@ -586,10 +1071,9 @@ export async function syncIncomeStatementToSheet(
       incomeStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi',
     ]);
     rawValues.push(['', '', '', '']);
-    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem sesuai Standar SAK EMKM.', '', '', '']);
+    rawValues.push(['* Catatan: Laporan Laba Rugi ini disusun sesuai Standar Akuntansi Keuangan SAK EMKM.', '', '', '']);
     rawValues.push(...getSignatureBlock());
 
-    // Clear & Update
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
       range: 'Laporan Laba Rugi!A1:Z500',
@@ -602,7 +1086,17 @@ export async function syncIncomeStatementToSheet(
       requestBody: { values: rawValues },
     });
 
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Laba Rugi', [120, 340, 180, 220]);
+    await applyPremiumFormatting(sheets, client.spreadsheetId, 'Laporan Laba Rugi', {
+      maxCols: 4,
+      colWidths: [110, 340, 180, 220],
+      titleRowsCount: 4,
+      headerRowIndex: 5,
+      centerCols: [0, 3],
+      currencyCols: [2],
+      totalRows: [revTotalRowIdx, expTotalRowIdx],
+      highlightRows: [{ rowIndex: netIncomeRowIdx, type: 'green' }],
+      totalRowCount: rawValues.length,
+    });
 
     return { success: true, message: 'Laporan Laba Rugi berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -644,21 +1138,26 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
     for (const item of balanceSheet.assets.currentAssets.items) {
       rawValues.push([item.code, item.name, item.amount, 'Aset Lancar']);
     }
+    const totCurrentAssetRowIdx = rawValues.length;
     rawValues.push(['', 'TOTAL ASET LANCAR (A)', balanceSheet.assets.currentAssets.total, '']);
     rawValues.push(['', '', '', '']);
 
     rawValues.push(['B. ASET TETAP & INVENTARIS', '', '', '']);
     if (balanceSheet.assets.fixedAssets.items.length === 0) {
-      rawValues.push(['-', 'Tidak ada aset tetap tercatat', 0, '-']);
+      rawValues.push(['', 'Tidak ada aset tetap tercatat', 0, 'Aset Tetap']);
     } else {
       for (const item of balanceSheet.assets.fixedAssets.items) {
         rawValues.push([item.code, item.name, item.amount, item.amount < 0 ? 'Penyusutan' : 'Aset Tetap']);
       }
     }
+    const totFixedAssetRowIdx = rawValues.length;
     rawValues.push(['', 'TOTAL ASET TETAP (B)', balanceSheet.assets.fixedAssets.total, '']);
-    rawValues.push(['', 'TOTAL ASET / AKTIVA (A + B)', balanceSheet.assets.totalAssets, 'Total Seluruh Kekayaan Usaha']);
+    
+    const totAssetRowIdx = rawValues.length;
+    rawValues.push(['', 'TOTAL ASET / AKTIVA (A ditambah B)', balanceSheet.assets.totalAssets, 'Total Kekayaan Usaha']);
     rawValues.push(['', '', '', '']);
 
+    const sec2RowIdx = rawValues.length;
     rawValues.push(['II. KEWAJIBAN & EKUITAS (PASIVA)', '', '', '']);
     rawValues.push(['Kode Akun', 'Pos Akun Keuangan', 'Jumlah (Rp)', 'Kategori SAK EMKM']);
     rawValues.push(['A. KEWAJIBAN / UTANG (LIABILITIES)', '', '', '']);
@@ -669,12 +1168,13 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
     ];
 
     if (allLiabItems.length === 0) {
-      rawValues.push(['-', 'Tidak ada kewajiban / utang tercatat', 0, '-']);
+      rawValues.push(['', 'Tidak ada kewajiban / utang tercatat', 0, 'Kewajiban Usaha']);
     } else {
       for (const item of allLiabItems) {
         rawValues.push([item.code, item.name, item.amount, 'Kewajiban Usaha']);
       }
     }
+    const totLiabRowIdx = rawValues.length;
     rawValues.push(['', 'TOTAL KEWAJIBAN / UTANG (A)', balanceSheet.liabilities.totalLiabilities, '']);
     rawValues.push(['', '', '', '']);
 
@@ -688,16 +1188,21 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
       balanceSheet.equity.currentPeriodProfit,
       balanceSheet.equity.currentPeriodProfit >= 0 ? 'Surplus Berjalan' : 'Defisit Berjalan',
     ]);
+    const totEquityRowIdx = rawValues.length;
     rawValues.push(['', 'TOTAL EKUITAS / MODAL (B)', balanceSheet.equity.totalEquity, '']);
+    
+    const totPasivaRowIdx = rawValues.length;
     rawValues.push([
       '',
-      'TOTAL KEWAJIBAN & EKUITAS / PASIVA (A + B)',
+      'TOTAL KEWAJIBAN & EKUITAS / PASIVA (A ditambah B)',
       balanceSheet.totalLiabilitiesAndEquity,
       'Total Kewajiban + Modal',
     ]);
+    
+    const balanceCheckRowIdx = rawValues.length;
     rawValues.push([
       '',
-      'STATUS KESEIMBANGAN NERACA (AKTIVA − PASIVA)',
+      'STATUS KESEIMBANGAN NERACA (AKTIVA dikurangi PASIVA)',
       balanceSheet.discrepancy,
       balanceSheet.isBalanced ? 'SEIMBANG (BALANCED)' : 'BELUM SEIMBANG',
     ]);
@@ -717,7 +1222,20 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
       requestBody: { values: rawValues },
     });
 
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Neraca Keuangan', [120, 340, 180, 220]);
+    await applyPremiumFormatting(sheets, client.spreadsheetId, 'Neraca Keuangan', {
+      maxCols: 4,
+      colWidths: [110, 340, 180, 220],
+      titleRowsCount: 4,
+      sectionBannerRows: [5, sec2RowIdx],
+      centerCols: [0, 3],
+      currencyCols: [2],
+      totalRows: [totCurrentAssetRowIdx, totFixedAssetRowIdx, totAssetRowIdx, totLiabRowIdx, totEquityRowIdx, totPasivaRowIdx],
+      highlightRows: [
+        { rowIndex: totAssetRowIdx, type: 'gray' },
+        { rowIndex: balanceCheckRowIdx, type: 'green' },
+      ],
+      totalRowCount: rawValues.length,
+    });
 
     return { success: true, message: `Neraca Keuangan per ${dateFormatted} berhasil disinkronkan ke Google Sheets` };
   } catch (error) {
@@ -764,52 +1282,58 @@ export async function syncCashFlowToSheet(
     ];
 
     if (cashFlow.operatingActivities.inflows.length === 0) {
-      rawValues.push(['-', 'Tidak ada penerimaan operasi', 0, '-']);
+      rawValues.push(['', 'Tidak ada penerimaan operasi', 0, 'Penerimaan Kas']);
     } else {
       for (const item of cashFlow.operatingActivities.inflows) {
-        rawValues.push([item.code, `+ Penerimaan dari ${item.name}`, item.amount, 'Penerimaan Kas']);
+        rawValues.push([item.code, `Penerimaan dari ${item.name}`, item.amount, 'Penerimaan Kas']);
       }
     }
 
     if (cashFlow.operatingActivities.outflows.length === 0) {
-      rawValues.push(['-', 'Tidak ada pengeluaran operasi', 0, '-']);
+      rawValues.push(['', 'Tidak ada pengeluaran operasi', 0, 'Pengeluaran Kas']);
     } else {
       for (const item of cashFlow.operatingActivities.outflows) {
-        rawValues.push([item.code, `- Pembayaran untuk ${item.name}`, -item.amount, 'Pengeluaran Kas']);
+        rawValues.push([item.code, `Pembayaran untuk ${item.name}`, -item.amount, 'Pengeluaran Kas']);
       }
     }
+    const totOpCashRowIdx = rawValues.length;
     rawValues.push(['', 'Arus Kas Bersih Aktivitas Operasi (A)', cashFlow.operatingActivities.netAmount, '']);
     rawValues.push(['', '', '', '']);
 
     rawValues.push(['B. ARUS KAS DARI AKTIVITAS INVESTASI', '', '', '']);
     if (cashFlow.investingActivities.outflows.length === 0) {
-      rawValues.push(['-', 'Tidak ada transaksi investasi', 0, '-']);
+      rawValues.push(['', 'Tidak ada transaksi investasi', 0, 'Pengeluaran Investasi']);
     } else {
       for (const item of cashFlow.investingActivities.outflows) {
-        rawValues.push([item.code, `- Pembelian ${item.name}`, -item.amount, 'Pengeluaran Investasi']);
+        rawValues.push([item.code, `Pembelian ${item.name}`, -item.amount, 'Pengeluaran Investasi']);
       }
     }
+    const totInvCashRowIdx = rawValues.length;
     rawValues.push(['', 'Arus Kas Bersih Aktivitas Investasi (B)', cashFlow.investingActivities.netAmount, '']);
     rawValues.push(['', '', '', '']);
 
     rawValues.push(['C. ARUS KAS DARI AKTIVITAS PENDANAAN', '', '', '']);
     if (cashFlow.financingActivities.inflows.length > 0) {
       for (const item of cashFlow.financingActivities.inflows) {
-        rawValues.push([item.code, `+ Penerimaan ${item.name}`, item.amount, 'Penerimaan Modal']);
+        rawValues.push([item.code, `Penerimaan Modal: ${item.name}`, item.amount, 'Penerimaan Modal']);
       }
     }
     if (cashFlow.financingActivities.outflows.length > 0) {
       for (const item of cashFlow.financingActivities.outflows) {
-        rawValues.push([item.code, `- Penarikan / Bagi Hasil ${item.name}`, -item.amount, 'Pengeluaran Modal']);
+        rawValues.push([item.code, `Bagi Hasil PADes: ${item.name}`, -item.amount, 'Pengeluaran Modal']);
       }
     }
     if (!cashFlow.financingActivities.inflows.length && !cashFlow.financingActivities.outflows.length) {
-      rawValues.push(['-', 'Tidak ada transaksi pendanaan', 0, '-']);
+      rawValues.push(['', 'Tidak ada transaksi pendanaan', 0, 'Pendanaan Modal']);
     }
+    const totFinCashRowIdx = rawValues.length;
     rawValues.push(['', 'Arus Kas Bersih Aktivitas Pendanaan (C)', cashFlow.financingActivities.netAmount, '']);
     rawValues.push(['', '', '', '']);
 
+    const netCashFlowRowIdx = rawValues.length;
     rawValues.push(['', 'KENAIKAN / (PENURUNAN) KAS BERSIH (A + B + C)', cashFlow.netCashFlow, cashFlow.netCashFlow >= 0 ? 'Surplus Kas' : 'Defisit Kas']);
+    
+    const endCashRowIdx = rawValues.length;
     rawValues.push(['', 'SALDO KAS & BANK AKHIR PERIODE (REKONSILIASI KAS NERACA)', cashFlow.closingCashBalance, 'Kas Riil BUMDes']);
     rawValues.push(['', '', '', '']);
     rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '']);
@@ -827,7 +1351,17 @@ export async function syncCashFlowToSheet(
       requestBody: { values: rawValues },
     });
 
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Arus Kas', [120, 360, 180, 220]);
+    await applyPremiumFormatting(sheets, client.spreadsheetId, 'Laporan Arus Kas', {
+      maxCols: 4,
+      colWidths: [110, 360, 180, 220],
+      titleRowsCount: 4,
+      headerRowIndex: 5,
+      centerCols: [0, 3],
+      currencyCols: [2],
+      totalRows: [totOpCashRowIdx, totInvCashRowIdx, totFinCashRowIdx, netCashFlowRowIdx, endCashRowIdx],
+      highlightRows: [{ rowIndex: endCashRowIdx, type: 'green' }],
+      totalRowCount: rawValues.length,
+    });
 
     return { success: true, message: 'Laporan Arus Kas berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -869,15 +1403,16 @@ export async function syncEquityStatementToSheet(
       ['', '', '', ''],
       ['No', 'Uraian / Pos Perubahan Ekuitas', 'Jumlah (Rp)', 'Keterangan'],
       ['1', `Modal Awal Periode (Per ${formatDateIndo(startDate)})`, equityStatement.beginningCapital, 'Modal Awal Disetor'],
-      ['•', `Laba / (Rugi) Bersih Periode Berjalan`, equityStatement.netIncome, equityStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi'],
-      ['•', `Penambahan Modal / Investasi Baru BUMDes`, equityStatement.additionalCapital, 'Setoran Modal Baru'],
-      ['•', `Penarikan Modal / Bagi Hasil PADes Desa Bogem`, -equityStatement.withdrawals, 'Prive / Bagi Hasil Desa'],
+      ['', `Laba / (Rugi) Bersih Periode Berjalan`, equityStatement.netIncome, equityStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi'],
+      ['', `Penambahan Modal / Investasi Baru BUMDes`, equityStatement.additionalCapital, 'Setoran Modal Baru'],
+      ['', `Bagi Hasil PADes Desa Bogem`, -equityStatement.withdrawals, 'Prive / Bagi Hasil Desa'],
       ['2', `Kenaikan / (Penurunan) Modal Bersih`, equityStatement.netChange, equityStatement.netChange >= 0 ? 'Kenaikan Modal' : 'Penurunan Modal'],
-      ['3', `MODAL AKHIR PERIODE (TOTAL EKUITAS NERACA)`, equityStatement.endingCapital, 'Total Ekuitas Akhir'],
-      ['', '', '', ''],
-      ['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', ''],
     ];
 
+    const endCapitalRowIdx = rawValues.length;
+    rawValues.push(['3', `MODAL AKHIR PERIODE (TOTAL EKUITAS NERACA)`, equityStatement.endingCapital, 'Total Ekuitas Akhir']);
+    rawValues.push(['', '', '', '']);
+    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '']);
     rawValues.push(...getSignatureBlock());
 
     await sheets.spreadsheets.values.clear({
@@ -892,7 +1427,17 @@ export async function syncEquityStatementToSheet(
       requestBody: { values: rawValues },
     });
 
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Perubahan Modal', [80, 380, 180, 220]);
+    await applyPremiumFormatting(sheets, client.spreadsheetId, 'Laporan Perubahan Modal', {
+      maxCols: 4,
+      colWidths: [60, 380, 180, 220],
+      titleRowsCount: 4,
+      headerRowIndex: 5,
+      numberCols: [0],
+      centerCols: [3],
+      currencyCols: [2],
+      highlightRows: [{ rowIndex: endCapitalRowIdx, type: 'green' }],
+      totalRowCount: rawValues.length,
+    });
 
     return { success: true, message: 'Laporan Perubahan Modal berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -939,24 +1484,25 @@ export async function syncGeneralLedgerToSheet(
       [`Periode: ${periodFormatted} • Sinkronisasi: ${nowFormatted}`, '', '', '', '', ''],
       ['', '', '', '', '', ''],
       ['Tanggal', 'Keterangan Mutasi Kas', 'Petugas', 'Debit (Rp)', 'Kredit (Rp)', 'Saldo Kas (Rp)'],
-      [formatDateIndo(startDate), 'SALDO AWAL KAS', 'Sistem', '-', '-', gl.openingBalance],
+      [formatDateIndo(startDate), 'SALDO AWAL KAS', 'Sistem', 0, 0, gl.openingBalance],
     ];
 
     if (gl.entries.length === 0) {
-      rawValues.push(['-', 'Tidak ada mutasi kas pada periode ini', '-', 0, 0, gl.openingBalance]);
+      rawValues.push(['', 'Tidak ada mutasi kas pada periode ini', 'Sistem', 0, 0, gl.openingBalance]);
     } else {
       for (const item of gl.entries) {
         rawValues.push([
           formatDateIndo(item.date),
           item.description,
           item.creatorName,
-          item.debit > 0 ? item.debit : '-',
-          item.credit > 0 ? item.credit : '-',
+          item.debit,
+          item.credit,
           item.runningBalance,
         ]);
       }
     }
 
+    const totalGLRowIdx = rawValues.length;
     rawValues.push(['', 'TOTAL MUTASI & SALDO AKHIR', '', gl.totalDebit, gl.totalCredit, gl.closingBalance]);
     rawValues.push(['', '', '', '', '', '']);
     rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '', '', '']);
@@ -974,7 +1520,17 @@ export async function syncGeneralLedgerToSheet(
       requestBody: { values: rawValues },
     });
 
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Buku Besar Kas', [110, 340, 140, 160, 160, 170]);
+    await applyPremiumFormatting(sheets, client.spreadsheetId, 'Buku Besar Kas', {
+      maxCols: 6,
+      colWidths: [110, 320, 130, 150, 150, 160],
+      titleRowsCount: 4,
+      headerRowIndex: 5,
+      centerCols: [0, 2],
+      currencyCols: [3, 4, 5],
+      totalRows: [totalGLRowIdx],
+      highlightRows: [{ rowIndex: totalGLRowIdx, type: 'gray' }],
+      totalRowCount: rawValues.length,
+    });
 
     return { success: true, message: 'Buku Besar Kas berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -1035,14 +1591,18 @@ export async function syncAllFinancialReportsToSheet(options?: {
       endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
     }
 
-    // Jalankan secara sekuensial agar aman dan tidak membebani koneksi Google Sheets
-    const incRes = await syncIncomeStatementToSheet(startDate, endDate);
-    const balRes = await syncBalanceSheetToSheet(endDate);
-    const cfRes = await syncCashFlowToSheet(startDate, endDate);
-    const eqRes = await syncEquityStatementToSheet(startDate, endDate);
-    const glRes = await syncGeneralLedgerToSheet(startDate, endDate);
+    // Jalankan sinkronisasi seluruh lembar laporan secara berurutan
+    const [monthRes, incRes, balRes, cfRes, eqRes, glRes] = [
+      await syncMonthlyFinancialReportToSheet(year, month),
+      await syncIncomeStatementToSheet(startDate, endDate),
+      await syncBalanceSheetToSheet(endDate),
+      await syncCashFlowToSheet(startDate, endDate),
+      await syncEquityStatementToSheet(startDate, endDate),
+      await syncGeneralLedgerToSheet(startDate, endDate),
+    ];
 
-    const allSuccess = incRes.success && balRes.success && cfRes.success && eqRes.success && glRes.success;
+    const allSuccess =
+      monthRes.success && incRes.success && balRes.success && cfRes.success && eqRes.success && glRes.success;
 
     return {
       success: allSuccess,
@@ -1050,17 +1610,12 @@ export async function syncAllFinancialReportsToSheet(options?: {
       month,
       periodType,
       message: `Seluruh laporan keuangan (Tahun ${year}) berhasil disinkronkan ke Google Sheets`,
-      details: { incRes, balRes, cfRes, eqRes, glRes },
+      details: { monthRes, incRes, balRes, cfRes, eqRes, glRes },
     };
   } catch (error) {
     console.error('Error in syncAllFinancialReportsToSheet:', error);
     return { success: false, error };
   }
-}
-
-// Backward compatibility alias
-export async function syncMonthlyFinancialReportToSheet(targetYear?: number, targetMonth?: number) {
-  return syncAllFinancialReportsToSheet({ year: targetYear, month: targetMonth });
 }
 
 // ==========================================
@@ -1087,7 +1642,7 @@ export async function retryPendingSync(targetYear?: number) {
 
     return {
       success: compactResult.success && reportResult.success,
-      message: `Berhasil menyinkronkan ${compactResult.count ?? 0} transaksi serta memperbarui seluruh lembar laporan ke Google Sheets.`,
+      message: `Berhasil merapikan ${compactResult.count ?? 0} transaksi serta memperbarui seluruh lembar laporan ke Google Sheets.`,
       syncedCount: compactResult.count ?? 0,
       failedCount: 0,
     };
@@ -1100,24 +1655,5 @@ export async function retryPendingSync(targetYear?: number) {
       failedCount: 0,
     };
   }
-}
-
-// Backward compatibility helpers
-export async function appendOrderRow(order: unknown, userName: string) {
-  void order;
-  void userName;
-  return { success: true, sheetRowId: null };
-}
-
-export async function updateOrderRow(sheetRowId: number | null | undefined, order: unknown, userName: string) {
-  void order;
-  void userName;
-  return { success: true, sheetRowId };
-}
-
-export async function clearOrderRow(sheetRowId?: number | null, orderId?: string) {
-  void sheetRowId;
-  void orderId;
-  return { success: true };
 }
 

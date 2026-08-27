@@ -20,24 +20,6 @@ export const transactionSchema = z.object({
 
 export type TransactionInput = z.infer<typeof transactionSchema>;
 
-export const cateringOrderSchema = z.object({
-  customerName: z.string().min(1, 'Nama pemesan wajib diisi'),
-  customerPhone: z.string().optional().nullable(),
-  eventDate: z.string().min(1, 'Tanggal acara wajib diisi'),
-  menuDetail: z.string().min(1, 'Detail menu wajib diisi'),
-  portion: z.coerce
-    .number()
-    .int('Porsi harus berupa bilangan bulat')
-    .positive('Porsi minimal 1'),
-  totalPrice: z.coerce
-    .number()
-    .positive('Total harga harus lebih besar dari 0'),
-  status: z.enum(['PENDING', 'DIPROSES', 'SELESAI', 'DIBATALKAN']).default('PENDING'),
-  notes: z.string().optional().nullable(),
-});
-
-export type CateringOrderInput = z.infer<typeof cateringOrderSchema>;
-
 export const userCreateSchema = z.object({
   name: z.string().min(2, 'Nama pengguna minimal 2 karakter'),
   email: z.string().email('Format email tidak valid'),
