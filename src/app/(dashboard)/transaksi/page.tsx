@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import {
@@ -13,6 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  Calendar,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -53,6 +55,13 @@ interface SummaryMeta {
   netBalance: number;
 }
 
+const MONTH_NAMES = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
+const YEAR_OPTIONS = ['ALL', '2024', '2025', '2026', '2027'];
+
 export default function TransaksiPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
@@ -74,11 +83,15 @@ export default function TransaksiPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [filterType, setFilterType] = useState<'ALL' | 'PEMASUKAN' | 'PENGELUARAN'>('ALL');
+  const [selectedYear, setSelectedYear] = useState<string>('ALL');
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<TransactionItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isSyncingSheet, setIsSyncingSheet] = useState(false);
+  const isSyncingRef = useRef(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Debounce search input agar tidak memicu query berlebih
@@ -100,6 +113,12 @@ export default function TransaksiPage() {
       if (filterType !== 'ALL') {
         params.append('type', filterType);
       }
+      if (selectedYear !== 'ALL') {
+        params.append('year', selectedYear);
+      }
+      if (selectedMonth !== 'ALL') {
+        params.append('month', selectedMonth);
+      }
       if (debouncedSearch) {
         params.append('search', debouncedSearch);
       }
@@ -120,7 +139,7 @@ export default function TransaksiPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [filterType, debouncedSearch, currentPage]);
+  }, [filterType, selectedYear, selectedMonth, debouncedSearch, currentPage]);
 
   useEffect(() => {
     fetchTransactions();
@@ -129,6 +148,39 @@ export default function TransaksiPage() {
   const handleFilterTypeChange = (type: 'ALL' | 'PEMASUKAN' | 'PENGELUARAN') => {
     setFilterType(type);
     setCurrentPage(1);
+  };
+
+  const handleYearChange = (yr: string) => {
+    setSelectedYear(yr);
+    setCurrentPage(1);
+  };
+
+  const handleMonthChange = (mo: string) => {
+    setSelectedMonth(mo);
+    setCurrentPage(1);
+  };
+
+  const handleSyncCompactSheet = async () => {
+    if (isSyncingRef.current || isSyncingSheet) return;
+    try {
+      isSyncingRef.current = true;
+      setIsSyncingSheet(true);
+      setToastMessage(null);
+      const res = await fetch('/api/sync/retry', { method: 'POST' });
+      const json = await res.json();
+      if (res.ok) {
+        setToastMessage(`✅ ${json.message || 'Google Sheets berhasil dirapikan & disinkronkan!'}`);
+        fetchTransactions();
+      } else {
+        setToastMessage(`❌ ${json.message || 'Gagal sinkronisasi Google Sheets'}`);
+      }
+    } catch {
+      setToastMessage('❌ Terjadi kesalahan saat sinkronisasi Google Sheets');
+    } finally {
+      setIsSyncingSheet(false);
+      isSyncingRef.current = false;
+      setTimeout(() => setToastMessage(null), 5000);
+    }
   };
 
   const handleDelete = async () => {
@@ -161,7 +213,17 @@ export default function TransaksiPage() {
         title="Buku Kas & Transaksi"
         description="Catatan seluruh uang masuk dan pengeluaran operasional catering BUMDes Bogem"
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <BigButton
+              variant="secondary"
+              size="normal"
+              onClick={handleSyncCompactSheet}
+              isLoading={isSyncingSheet}
+              loadingText="Menyinkronkan..."
+              icon={<FileSpreadsheet className="w-4 h-4 text-emerald-600" />}
+            >
+              Rapikan & Sync Sheets
+            </BigButton>
             <Link href="/transaksi/tambah?type=PEMASUKAN">
               <BigButton
                 variant="income"
@@ -194,7 +256,7 @@ export default function TransaksiPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-subtle">
           <span className="text-xs font-medium text-slate-500">
-            Total Uang Masuk Terfilter
+            Total Uang Masuk {selectedYear !== 'ALL' ? `(${selectedYear})` : 'Terfilter'}
           </span>
           <div className="text-lg sm:text-xl font-bold text-emerald-700 mt-0.5 tabular-nums">
             + Rp {summary.totalIncome.toLocaleString('id-ID')}
@@ -203,7 +265,7 @@ export default function TransaksiPage() {
 
         <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-subtle">
           <span className="text-xs font-medium text-slate-500">
-            Total Uang Keluar Terfilter
+            Total Uang Keluar {selectedYear !== 'ALL' ? `(${selectedYear})` : 'Terfilter'}
           </span>
           <div className="text-lg sm:text-xl font-bold text-rose-700 mt-0.5 tabular-nums">
             - Rp {summary.totalExpense.toLocaleString('id-ID')}
@@ -212,7 +274,7 @@ export default function TransaksiPage() {
 
         <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-subtle">
           <span className="text-xs font-medium text-slate-500">
-            Selisih Kas Terfilter
+            Selisih Kas {selectedYear !== 'ALL' ? `(${selectedYear})` : 'Terfilter'}
           </span>
           <div className="text-lg sm:text-xl font-bold text-slate-900 mt-0.5 tabular-nums">
             Rp {summary.netBalance.toLocaleString('id-ID')}
@@ -220,11 +282,11 @@ export default function TransaksiPage() {
         </div>
       </div>
 
-      {/* Filter Kategori & Pencarian */}
-      <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200/80 shadow-subtle">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+      {/* Filter Kategori, Tahun, Bulan & Pencarian */}
+      <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200/80 shadow-subtle space-y-3">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
           {/* Filter Tipe Transaksi */}
-          <div className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg w-full sm:w-auto overflow-x-auto">
+          <div className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg overflow-x-auto">
             <button
               onClick={() => handleFilterTypeChange('ALL')}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap select-none ${
@@ -257,19 +319,55 @@ export default function TransaksiPage() {
             </button>
           </div>
 
-          {/* Form Pencarian Cepat */}
-          <div className="relative w-full sm:w-72">
-            <input
-              type="text"
-              placeholder="Cari transaksi / keterangan..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-9 pl-9 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-slate-900 focus:outline-none transition-all"
-            />
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            {isLoading && (
-              <RefreshCw className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3 animate-spin" />
-            )}
+          {/* Filter Periode Tahun & Bulan */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <span className="text-[11px] font-semibold text-slate-600">Tahun:</span>
+              <select
+                value={selectedYear}
+                onChange={(e) => handleYearChange(e.target.value)}
+                className="text-xs font-bold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">Semua Tahun</option>
+                {YEAR_OPTIONS.filter((y) => y !== 'ALL').map((yr) => (
+                  <option key={yr} value={yr}>
+                    {yr}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+              <span className="text-[11px] font-semibold text-slate-600">Bulan:</span>
+              <select
+                value={selectedMonth}
+                onChange={(e) => handleMonthChange(e.target.value)}
+                className="text-xs font-medium text-slate-900 bg-transparent focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">Semua Bulan</option>
+                {MONTH_NAMES.map((m, idx) => (
+                  <option key={idx} value={idx.toString()}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Form Pencarian Cepat */}
+            <div className="relative flex-1 sm:w-64 min-w-[200px]">
+              <input
+                type="text"
+                placeholder="Cari transaksi / kode..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full h-8 pl-8 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-slate-900 focus:outline-none transition-all"
+              />
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              {isLoading && (
+                <RefreshCw className="w-3 h-3 text-slate-400 absolute right-2.5 top-2.5 animate-spin" />
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -286,6 +384,8 @@ export default function TransaksiPage() {
           <p className="mt-0.5 text-xs text-slate-500 max-w-sm mx-auto">
             {debouncedSearch
               ? 'Tidak ada transaksi yang cocok dengan pencarian Anda.'
+              : selectedYear !== 'ALL'
+              ? `Belum ada transaksi tercatat untuk Tahun ${selectedYear}.`
               : 'Mulai catat transaksi kas pertama unit catering Bogem.'}
           </p>
         </div>
@@ -309,15 +409,22 @@ export default function TransaksiPage() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <span
-                        className={`inline-block text-[10px] px-1.5 py-0.2 rounded font-medium ${
-                          isIncome
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-rose-50 text-rose-700 border border-rose-200'
-                        }`}
-                      >
-                        {isIncome ? 'Masuk' : 'Keluar'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`inline-block text-[10px] px-1.5 py-0.2 rounded font-medium ${
+                            isIncome
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          }`}
+                        >
+                          {isIncome ? 'Masuk' : 'Keluar'}
+                        </span>
+                        {trx.account?.code && (
+                          <span className="text-[10px] font-mono font-bold text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                            [{trx.account.code}]
+                          </span>
+                        )}
+                      </div>
                       <h4 className="text-sm font-bold text-slate-900 mt-1">
                         {trx.account?.name || trx.category}
                       </h4>
@@ -364,7 +471,7 @@ export default function TransaksiPage() {
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
                     <th className="py-3 px-4">Tanggal</th>
                     <th className="py-3 px-4">Jenis</th>
-                    <th className="py-3 px-4">Akun & Keterangan</th>
+                    <th className="py-3 px-4">Kode & Pos Akun Keuangan</th>
                     <th className="py-3 px-4 text-right">Nominal (Rp)</th>
                     <th className="py-3 px-4">Petugas</th>
                     <th className="py-3 px-4 text-center">Sheets</th>
@@ -398,10 +505,17 @@ export default function TransaksiPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4">
-                          <div className="font-semibold text-slate-900">
-                            {trx.account?.name || trx.category}
+                          <div className="flex items-center gap-1.5">
+                            {trx.account?.code && (
+                              <span className="font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded text-[11px]">
+                                [{trx.account.code}]
+                              </span>
+                            )}
+                            <span className="font-semibold text-slate-900">
+                              {trx.account?.name || trx.category}
+                            </span>
                           </div>
-                          <div className="text-[11px] text-slate-400 font-normal line-clamp-1 mt-0.5">
+                          <div className="text-[11px] text-slate-500 font-normal line-clamp-1 mt-0.5">
                             {trx.description}
                           </div>
                         </td>

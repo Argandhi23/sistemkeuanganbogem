@@ -109,6 +109,21 @@ const REQUIRED_SHEET_TABS = [
 ];
 
 /**
+ * Standard Sign-off Block (Tanda Tangan Pengesahan Desa)
+ */
+function getSignatureBlock(): (string | number)[][] {
+  return [
+    ['', '', '', ''],
+    ['Lembar Pengesahan Laporan Keuangan Desa Bogem:', '', '', ''],
+    ['Mengetahui,', 'Disetujui Oleh,', '', 'Dibuat Oleh,'],
+    ['Kepala Desa Bogem', 'Ketua BUMDes Bogem', '', 'Bendahara Catering'],
+    ['', '', '', ''],
+    ['', '', '', ''],
+    ['( ......................................... )', '( ......................................... )', '', '( ......................................... )'],
+  ];
+}
+
+/**
  * Memastikan Tab dan Header ada di spreadsheet jika baru dibuat
  */
 export async function ensureSheetHeaders(force = false) {
@@ -141,28 +156,6 @@ export async function ensureSheetHeaders(force = false) {
       });
     }
 
-    // Cek Header Pembukuan
-    const resPembukuan = await sheets.spreadsheets.values.get({
-      spreadsheetId: client.spreadsheetId,
-      range: 'Pembukuan!A1:G1',
-    }).catch(() => null);
-
-    if (!resPembukuan?.data.values || resPembukuan.data.values.length === 0) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: client.spreadsheetId,
-        range: 'Pembukuan!A1:G1',
-        valueInputOption: 'USER_ENTERED',
-        requestBody: {
-          values: [
-            ['Tanggal', 'Tipe Transaksi', 'Kategori Pos', 'Deskripsi', 'Jumlah (Rp)', 'Diinput Oleh', 'ID Transaksi'],
-          ],
-        },
-      });
-    }
-
-    // Atur lebar kolom untuk sheet Pembukuan
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Pembukuan', [120, 130, 240, 320, 160, 180, 220]);
-
     lastHeadersEnsured = now;
     return { success: true };
   } catch (error) {
@@ -172,7 +165,7 @@ export async function ensureSheetHeaders(force = false) {
 }
 
 // ==========================================
-// TRANSAKSI KAS (PEMBUKUAN)
+// TRANSAKSI KAS (PEMBUKUAN) - BUKU KAS UMUM
 // ==========================================
 
 export async function appendTransactionRow(
@@ -183,6 +176,8 @@ export async function appendTransactionRow(
     description: string;
     amount: number;
     date: Date | string;
+    accountCode?: string;
+    accountName?: string;
   },
   userName: string
 ) {
@@ -194,19 +189,27 @@ export async function appendTransactionRow(
   const sheets = google.sheets({ version: 'v4', auth: client.auth });
 
   try {
+    await ensureSheetHeaders();
+
+    const isIncome = trx.type === 'PEMASUKAN';
+    const debit = isIncome ? trx.amount : 0;
+    const credit = !isIncome ? trx.amount : 0;
+
     const rowData = [
       formatDateIndo(trx.date),
-      trx.type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar',
-      trx.category,
+      isIncome ? 'Uang Masuk (Penerimaan)' : 'Uang Keluar (Pengeluaran)',
+      trx.accountCode || (isIncome ? '4001' : '5001'),
+      trx.accountName || trx.category,
       trx.description,
-      trx.amount,
+      debit > 0 ? debit : '-',
+      credit > 0 ? credit : '-',
       userName,
       trx.id,
     ];
 
     const res = await sheets.spreadsheets.values.append({
       spreadsheetId: client.spreadsheetId,
-      range: 'Pembukuan!A:G',
+      range: 'Pembukuan!A:I',
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: {
@@ -216,8 +219,9 @@ export async function appendTransactionRow(
 
     const sheetRowId = extractRowNumberFromRange(res.data.updates?.updatedRange);
 
-    // Auto update seluruh tab laporan di Google Sheets di latar belakang
-    triggerDebouncedReportSync();
+    // Auto update laporan keuangan di latar belakang untuk tahun transaksi bersangkutan
+    const trxYear = new Date(trx.date).getFullYear();
+    triggerDebouncedReportSync(trxYear);
 
     return { success: true, sheetRowId };
   } catch (error) {
@@ -235,6 +239,8 @@ export async function updateTransactionRow(
     description: string;
     amount: number;
     date: Date | string;
+    accountCode?: string;
+    accountName?: string;
   },
   userName: string
 ) {
@@ -249,10 +255,10 @@ export async function updateTransactionRow(
     if (!targetRow) {
       const allRows = await sheets.spreadsheets.values.get({
         spreadsheetId: client.spreadsheetId,
-        range: 'Pembukuan!A:G',
+        range: 'Pembukuan!A:K',
       });
       const rows = allRows.data.values || [];
-      const index = rows.findIndex((r) => r[6] === trx.id);
+      const index = rows.findIndex((r) => r && (r[10] === trx.id || r[9] === trx.id || r[8] === trx.id || r[6] === trx.id));
       if (index !== -1) {
         targetRow = index + 1;
       }
@@ -262,26 +268,33 @@ export async function updateTransactionRow(
       return appendTransactionRow(trx, userName);
     }
 
+    const isIncome = trx.type === 'PEMASUKAN';
+    const debit = isIncome ? trx.amount : 0;
+    const credit = !isIncome ? trx.amount : 0;
+
     const rowData = [
       formatDateIndo(trx.date),
-      trx.type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar',
-      trx.category,
+      isIncome ? 'Uang Masuk (Penerimaan)' : 'Uang Keluar (Pengeluaran)',
+      trx.accountCode || (isIncome ? '4001' : '5001'),
+      trx.accountName || trx.category,
       trx.description,
-      trx.amount,
+      debit > 0 ? debit : '-',
+      credit > 0 ? credit : '-',
       userName,
       trx.id,
     ];
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: client.spreadsheetId,
-      range: `Pembukuan!A${targetRow}:G${targetRow}`,
+      range: `Pembukuan!A${targetRow}:I${targetRow}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: [rowData],
       },
     });
 
-    triggerDebouncedReportSync();
+    const trxYear = new Date(trx.date).getFullYear();
+    triggerDebouncedReportSync(trxYear);
 
     return { success: true, sheetRowId: targetRow };
   } catch (error) {
@@ -292,7 +305,6 @@ export async function updateTransactionRow(
 
 /**
  * Menghapus baris transaksi secara fisik dari Google Sheets (deleteDimension)
- * sehingga tidak meninggalkan tulisan [DIHAPUS DARI SISTEM]
  */
 export async function clearTransactionRow(sheetRowId?: number | null, trxId?: string) {
   const client = getGoogleAuthClient();
@@ -301,7 +313,6 @@ export async function clearTransactionRow(sheetRowId?: number | null, trxId?: st
   const sheets = google.sheets({ version: 'v4', auth: client.auth });
 
   try {
-    // 1. Dapatkan SheetId tab "Pembukuan"
     const spreadsheet = await sheets.spreadsheets.get({
       spreadsheetId: client.spreadsheetId,
     });
@@ -312,20 +323,18 @@ export async function clearTransactionRow(sheetRowId?: number | null, trxId?: st
 
     let targetRow = sheetRowId;
 
-    // 2. Cari baris berdasarkan ID Transaksi di Kolom G jika sheetRowId belum diketahui
     if (!targetRow && trxId) {
-      const colG = await sheets.spreadsheets.values.get({
+      const colId = await sheets.spreadsheets.values.get({
         spreadsheetId: client.spreadsheetId,
-        range: 'Pembukuan!G:G',
+        range: 'Pembukuan!A:K',
       });
-      const rows = colG.data.values || [];
-      const index = rows.findIndex((r) => r[0] && String(r[0]).trim() === trxId.trim());
+      const rows = colId.data.values || [];
+      const index = rows.findIndex((r) => r && r.some((c) => String(c).trim() === trxId.trim()));
       if (index !== -1) {
         targetRow = index + 1; // 1-indexed
       }
     }
 
-    // 3. Hapus baris secara fisik jika ditemukan
     if (targetRow && targetRow > 1) {
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: client.spreadsheetId,
@@ -346,7 +355,6 @@ export async function clearTransactionRow(sheetRowId?: number | null, trxId?: st
       });
     }
 
-    // Perbarui laporan di Google Sheets secara otomatis
     triggerDebouncedReportSync();
 
     return { success: true };
@@ -357,8 +365,8 @@ export async function clearTransactionRow(sheetRowId?: number | null, trxId?: st
 }
 
 /**
- * Membersihkan seluruh tab Pembukuan dan mengisi ulang hanya dengan transaksi aktif
- * (Menghapus seluruh baris lama [DIHAPUS DARI SISTEM] secara instan)
+ * Membersihkan seluruh tab Pembukuan dan mengisi ulang secara kronologis
+ * lengkap dengan Saldo Kas Berjalan (Running Balance) dan kode akun terstandar
  */
 export async function compactPembukuanSheet() {
   const client = getGoogleAuthClient();
@@ -370,43 +378,110 @@ export async function compactPembukuanSheet() {
     await ensureSheetHeaders(true);
 
     const activeTransactions = await prisma.transaction.findMany({
-      orderBy: { date: 'asc' },
-      include: { createdBy: { select: { name: true } } },
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        account: { select: { code: true, name: true } },
+        createdBy: { select: { name: true } },
+      },
     });
 
+    const nowFormatted = new Intl.DateTimeFormat('id-ID', {
+      dateStyle: 'full',
+      timeStyle: 'medium',
+    }).format(new Date());
+
+    const titleBlock = [
+      ['PEMERINTAH DESA BOGEM — BADAN USAHA MILIK DESA (BUMDES) BOGEM', '', '', '', '', '', '', '', '', '', ''],
+      ['UNIT USAHA CATERING & PELAYANAN KONSUMSI', '', '', '', '', '', '', '', '', '', ''],
+      ['BUKU KAS UMUM (CATATAN SELURUH TRANSAKSI MUTASI KAS MASUK & KELUAR)', '', '', '', '', '', '', '', '', '', ''],
+      [`Data Kronologis Mencakup Tahun 2025 s/d Sekarang • Waktu Sinkronisasi: ${nowFormatted}`, '', '', '', '', '', '', '', '', '', ''],
+      ['', '', '', '', '', '', '', '', '', '', ''],
+    ];
+
     const header = [
+      'No',
       'Tanggal',
-      'Tipe Transaksi',
-      'Kategori Pos',
-      'Deskripsi',
-      'Jumlah (Rp)',
+      'Jenis Mutasi',
+      'Kode Akun',
+      'Pos Akun Keuangan (SAK EMKM)',
+      'Keterangan / Rincian Transaksi',
+      'Uang Masuk / Debit (Rp)',
+      'Uang Keluar / Kredit (Rp)',
+      'Saldo Kas Berjalan (Rp)',
       'Diinput Oleh',
       'ID Transaksi',
     ];
 
-    const rows = activeTransactions.map((trx) => [
-      formatDateIndo(trx.date),
-      trx.type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar',
-      trx.category,
-      trx.description,
-      Number(trx.amount),
-      trx.createdBy?.name || 'Petugas',
-      trx.id,
-    ]);
+    let runningBalance = 0;
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    const rows = activeTransactions.map((trx, index) => {
+      const isIncome = trx.type === 'PEMASUKAN';
+      const amt = Number(trx.amount);
+      const debit = isIncome ? amt : 0;
+      const credit = !isIncome ? amt : 0;
+
+      if (isIncome) {
+        runningBalance += amt;
+        totalDebit += amt;
+      } else {
+        runningBalance -= amt;
+        totalCredit += amt;
+      }
+
+      return [
+        index + 1,
+        formatDateIndo(trx.date),
+        isIncome ? 'Uang Masuk (Penerimaan)' : 'Uang Keluar (Pengeluaran)',
+        trx.account?.code || (isIncome ? '4001' : '5001'),
+        trx.account?.name || trx.category,
+        trx.description,
+        debit > 0 ? debit : '-',
+        credit > 0 ? credit : '-',
+        runningBalance,
+        trx.createdBy?.name || 'Petugas',
+        trx.id,
+      ];
+    });
+
+    const summaryRow = [
+      '',
+      'TOTAL MUTASI & SALDO KAS AKHIR',
+      '',
+      '',
+      '',
+      `${activeTransactions.length} Transaksi Tercatat`,
+      totalDebit,
+      totalCredit,
+      runningBalance,
+      '',
+      '',
+    ];
+
+    const allValues = [
+      ...titleBlock,
+      header,
+      ...rows,
+      summaryRow,
+      ['', '', '', '', '', '', '', '', '', '', ''],
+      ['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '', '', '', '', '', '', '', ''],
+      ...getSignatureBlock(),
+    ];
 
     // Bersihkan seluruh tab Pembukuan
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
-      range: 'Pembukuan!A1:Z5000',
+      range: 'Pembukuan!A1:Z10000',
     }).catch(() => {});
 
     // Tulis data baru yang bersih
     await sheets.spreadsheets.values.update({
       spreadsheetId: client.spreadsheetId,
-      range: 'Pembukuan!A1:G' + (rows.length + 1),
+      range: 'Pembukuan!A1',
       valueInputOption: 'USER_ENTERED',
       requestBody: {
-        values: [header, ...rows],
+        values: allValues,
       },
     });
 
@@ -415,8 +490,10 @@ export async function compactPembukuanSheet() {
       data: { syncedToSheet: true },
     });
 
-    // Atur ulang lebar kolom
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Pembukuan', [120, 130, 240, 320, 160, 180, 220]);
+    // Atur lebar kolom proporsional
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Pembukuan', [
+      50, 110, 130, 90, 230, 320, 160, 160, 170, 160, 220,
+    ]);
 
     return { success: true, count: rows.length };
   } catch (error) {
@@ -427,12 +504,12 @@ export async function compactPembukuanSheet() {
 
 let debounceReportSyncTimer: NodeJS.Timeout | null = null;
 
-export function triggerDebouncedReportSync() {
+export function triggerDebouncedReportSync(targetYear?: number) {
   if (debounceReportSyncTimer) {
     clearTimeout(debounceReportSyncTimer);
   }
   debounceReportSyncTimer = setTimeout(() => {
-    syncAllFinancialReportsToSheet().catch(() => {});
+    syncAllFinancialReportsToSheet({ year: targetYear }).catch(() => {});
   }, 4000);
 }
 
@@ -462,9 +539,10 @@ export async function syncIncomeStatementToSheet(
     const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
 
     const rawValues: (string | number)[][] = [
-      ['LAPORAN LABA RUGI — BUMDES BOGEM', '', '', ''],
-      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', ''],
-      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['PEMERINTAH DESA BOGEM — BADAN USAHA MILIK DESA (BUMDES) BOGEM', '', '', ''],
+      ['UNIT USAHA CATERING & PELAYANAN KONSUMSI', '', '', ''],
+      ['LAPORAN LABA RUGI (STANDAR AKUNTANSI KEUANGAN SAK EMKM)', '', '', ''],
+      [`Periode: ${periodFormatted} • Sinkronisasi: ${nowFormatted}`, '', '', ''],
       ['', '', '', ''],
       ['Kode Akun', 'Pos Akuntansi / Keterangan', 'Jumlah (Rp)', 'Rincian Transaksi'],
       ['A. PENDAPATAN USAHA CATERING', '', '', ''],
@@ -508,7 +586,8 @@ export async function syncIncomeStatementToSheet(
       incomeStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi',
     ]);
     rawValues.push(['', '', '', '']);
-    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '']);
+    rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem sesuai Standar SAK EMKM.', '', '', '']);
+    rawValues.push(...getSignatureBlock());
 
     // Clear & Update
     await sheets.spreadsheets.values.clear({
@@ -523,8 +602,7 @@ export async function syncIncomeStatementToSheet(
       requestBody: { values: rawValues },
     });
 
-    // Atur lebar kolom proporsional
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Laba Rugi', [120, 320, 180, 220]);
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Laba Rugi', [120, 340, 180, 220]);
 
     return { success: true, message: 'Laporan Laba Rugi berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -553,9 +631,10 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
     const dateFormatted = new Intl.DateTimeFormat('id-ID', { dateStyle: 'long' }).format(asOfDate);
 
     const rawValues: (string | number)[][] = [
-      ['LAPORAN POSISI KEUANGAN (NERACA) — BUMDES BOGEM', '', '', ''],
-      [`Unit Usaha Catering Desa Bogem • Posisi Per: ${dateFormatted}`, '', '', ''],
-      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['PEMERINTAH DESA BOGEM — BADAN USAHA MILIK DESA (BUMDES) BOGEM', '', '', ''],
+      ['UNIT USAHA CATERING & PELAYANAN KONSUMSI', '', '', ''],
+      ['LAPORAN POSISI KEUANGAN (NERACA STANDAR SAK EMKM)', '', '', ''],
+      [`Posisi Keuangan Per: ${dateFormatted} • Sinkronisasi: ${nowFormatted}`, '', '', ''],
       ['', '', '', ''],
       ['I. ASET (AKTIVA)', '', '', ''],
       ['Kode Akun', 'Pos Akun Keuangan', 'Jumlah (Rp)', 'Kategori SAK EMKM'],
@@ -590,7 +669,7 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
     ];
 
     if (allLiabItems.length === 0) {
-      rawValues.push(['-', 'Tidak ada kewajiban / utang', 0, '-']);
+      rawValues.push(['-', 'Tidak ada kewajiban / utang tercatat', 0, '-']);
     } else {
       for (const item of allLiabItems) {
         rawValues.push([item.code, item.name, item.amount, 'Kewajiban Usaha']);
@@ -601,7 +680,7 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
 
     rawValues.push(['B. EKUITAS & MODAL (EQUITY)', '', '', '']);
     for (const item of balanceSheet.equity.capital.items) {
-      rawValues.push([item.code, item.name, item.amount, 'Modal Disetor']);
+      rawValues.push([item.code, item.name, item.amount, 'Modal Disetor BUMDes']);
     }
     rawValues.push([
       '3301',
@@ -618,12 +697,13 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
     ]);
     rawValues.push([
       '',
-      'KESEIMBANGAN NERACA (AKTIVA − PASIVA)',
+      'STATUS KESEIMBANGAN NERACA (AKTIVA − PASIVA)',
       balanceSheet.discrepancy,
       balanceSheet.isBalanced ? 'SEIMBANG (BALANCED)' : 'BELUM SEIMBANG',
     ]);
     rawValues.push(['', '', '', '']);
     rawValues.push(['* Catatan: Laporan Neraca ini disusun sesuai Standar Akuntansi Keuangan SAK EMKM.', '', '', '']);
+    rawValues.push(...getSignatureBlock());
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
@@ -637,8 +717,7 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
       requestBody: { values: rawValues },
     });
 
-    // Atur lebar kolom proporsional
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Neraca Keuangan', [120, 320, 180, 220]);
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Neraca Keuangan', [120, 340, 180, 220]);
 
     return { success: true, message: `Neraca Keuangan per ${dateFormatted} berhasil disinkronkan ke Google Sheets` };
   } catch (error) {
@@ -673,11 +752,12 @@ export async function syncCashFlowToSheet(
     const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
 
     const rawValues: (string | number)[][] = [
-      ['LAPORAN ARUS KAS (CASH FLOW) — BUMDES BOGEM', '', '', ''],
-      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', ''],
-      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['PEMERINTAH DESA BOGEM — BADAN USAHA MILIK DESA (BUMDES) BOGEM', '', '', ''],
+      ['UNIT USAHA CATERING & PELAYANAN KONSUMSI', '', '', ''],
+      ['LAPORAN ARUS KAS (CASH FLOW STATEMENT — METODE LANGSUNG)', '', '', ''],
+      [`Periode: ${periodFormatted} • Sinkronisasi: ${nowFormatted}`, '', '', ''],
       ['', '', '', ''],
-      ['Kode / No', 'Pos Aktivitas Arus Kas (SAK EMKM)', 'Jumlah (Rp)', 'Kategori'],
+      ['Kode / No', 'Pos Aktivitas Arus Kas (SAK EMKM)', 'Jumlah (Rp)', 'Kategori Kas'],
       ['1', 'Saldo Kas & Bank Awal Periode', cashFlow.openingCashBalance, 'Kas Awal'],
       ['', '', '', ''],
       ['A. ARUS KAS DARI AKTIVITAS OPERASI', '', '', ''],
@@ -730,9 +810,10 @@ export async function syncCashFlowToSheet(
     rawValues.push(['', '', '', '']);
 
     rawValues.push(['', 'KENAIKAN / (PENURUNAN) KAS BERSIH (A + B + C)', cashFlow.netCashFlow, cashFlow.netCashFlow >= 0 ? 'Surplus Kas' : 'Defisit Kas']);
-    rawValues.push(['', 'SALDO KAS & BANK AKHIR PERIODE', cashFlow.closingCashBalance, 'Kas Riil BUMDes']);
+    rawValues.push(['', 'SALDO KAS & BANK AKHIR PERIODE (REKONSILIASI KAS NERACA)', cashFlow.closingCashBalance, 'Kas Riil BUMDes']);
     rawValues.push(['', '', '', '']);
     rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '']);
+    rawValues.push(...getSignatureBlock());
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
@@ -746,8 +827,7 @@ export async function syncCashFlowToSheet(
       requestBody: { values: rawValues },
     });
 
-    // Atur lebar kolom proporsional
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Arus Kas', [120, 340, 180, 220]);
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Arus Kas', [120, 360, 180, 220]);
 
     return { success: true, message: 'Laporan Arus Kas berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -782,20 +862,23 @@ export async function syncEquityStatementToSheet(
     const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
 
     const rawValues: (string | number)[][] = [
-      ['LAPORAN PERUBAHAN MODAL (EKUITAS) — BUMDES BOGEM', '', '', ''],
-      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', ''],
-      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', ''],
+      ['PEMERINTAH DESA BOGEM — BADAN USAHA MILIK DESA (BUMDES) BOGEM', '', '', ''],
+      ['UNIT USAHA CATERING & PELAYANAN KONSUMSI', '', '', ''],
+      ['LAPORAN PERUBAHAN MODAL / EKUITAS (STATEMENT OF CHANGES IN EQUITY)', '', '', ''],
+      [`Periode: ${periodFormatted} • Sinkronisasi: ${nowFormatted}`, '', '', ''],
       ['', '', '', ''],
       ['No', 'Uraian / Pos Perubahan Ekuitas', 'Jumlah (Rp)', 'Keterangan'],
-      ['1', `Modal Awal Periode (Per ${formatDateIndo(startDate)})`, equityStatement.beginningCapital, 'Modal Awal'],
+      ['1', `Modal Awal Periode (Per ${formatDateIndo(startDate)})`, equityStatement.beginningCapital, 'Modal Awal Disetor'],
       ['•', `Laba / (Rugi) Bersih Periode Berjalan`, equityStatement.netIncome, equityStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi'],
-      ['•', `Penambahan Modal / Investasi Baru BUMDes`, equityStatement.additionalCapital, 'Setoran Modal'],
-      ['•', `Penarikan Modal / Bagi Hasil PADes Desa Bogem`, -equityStatement.withdrawals, 'Prive / Bagi Hasil'],
+      ['•', `Penambahan Modal / Investasi Baru BUMDes`, equityStatement.additionalCapital, 'Setoran Modal Baru'],
+      ['•', `Penarikan Modal / Bagi Hasil PADes Desa Bogem`, -equityStatement.withdrawals, 'Prive / Bagi Hasil Desa'],
       ['2', `Kenaikan / (Penurunan) Modal Bersih`, equityStatement.netChange, equityStatement.netChange >= 0 ? 'Kenaikan Modal' : 'Penurunan Modal'],
       ['3', `MODAL AKHIR PERIODE (TOTAL EKUITAS NERACA)`, equityStatement.endingCapital, 'Total Ekuitas Akhir'],
       ['', '', '', ''],
       ['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', ''],
     ];
+
+    rawValues.push(...getSignatureBlock());
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
@@ -809,8 +892,7 @@ export async function syncEquityStatementToSheet(
       requestBody: { values: rawValues },
     });
 
-    // Atur lebar kolom proporsional
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Perubahan Modal', [80, 360, 180, 220]);
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Perubahan Modal', [80, 380, 180, 220]);
 
     return { success: true, message: 'Laporan Perubahan Modal berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -839,9 +921,9 @@ export async function syncGeneralLedgerToSheet(
     const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), 0, 1);
     const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 
-    const kasAccount = await prisma.account.findFirst({
+    const kasAccount = (await prisma.account.findFirst({
       where: { code: '1001' },
-    }) || await prisma.account.findFirst();
+    })) || (await prisma.account.findFirst());
 
     if (!kasAccount) return { success: false, reason: 'Akun kas tidak ditemukan' };
 
@@ -851,11 +933,12 @@ export async function syncGeneralLedgerToSheet(
     const periodFormatted = `${formatDateIndo(startDate)} s/d ${formatDateIndo(endDate)}`;
 
     const rawValues: (string | number)[][] = [
-      ['BUKU BESAR KAS (BUKU KAS UMUM) — BUMDES BOGEM', '', '', '', '', ''],
-      [`Unit Usaha Catering Desa Bogem • Periode: ${periodFormatted}`, '', '', '', '', ''],
-      [`Waktu Sinkronisasi Terakhir: ${nowFormatted}`, '', '', '', '', ''],
+      ['PEMERINTAH DESA BOGEM — BADAN USAHA MILIK DESA (BUMDES) BOGEM', '', '', '', '', ''],
+      ['UNIT USAHA CATERING & PELAYANAN KONSUMSI', '', '', '', '', ''],
+      [`BUKU BESAR [${gl.account.code}] ${gl.account.name.toUpperCase()}`, '', '', '', '', ''],
+      [`Periode: ${periodFormatted} • Sinkronisasi: ${nowFormatted}`, '', '', '', '', ''],
       ['', '', '', '', '', ''],
-      ['Tanggal', 'Keterangan Mutasi', 'Petugas', 'Debit (Rp)', 'Kredit (Rp)', 'Saldo Kas (Rp)'],
+      ['Tanggal', 'Keterangan Mutasi Kas', 'Petugas', 'Debit (Rp)', 'Kredit (Rp)', 'Saldo Kas (Rp)'],
       [formatDateIndo(startDate), 'SALDO AWAL KAS', 'Sistem', '-', '-', gl.openingBalance],
     ];
 
@@ -877,6 +960,7 @@ export async function syncGeneralLedgerToSheet(
     rawValues.push(['', 'TOTAL MUTASI & SALDO AKHIR', '', gl.totalDebit, gl.totalCredit, gl.closingBalance]);
     rawValues.push(['', '', '', '', '', '']);
     rawValues.push(['* Catatan: Data disinkronkan secara otomatis dari Aplikasi Pembukuan BUMDes Bogem.', '', '', '', '', '']);
+    rawValues.push(...getSignatureBlock());
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
@@ -890,8 +974,7 @@ export async function syncGeneralLedgerToSheet(
       requestBody: { values: rawValues },
     });
 
-    // Atur lebar kolom proporsional
-    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Buku Besar Kas', [110, 320, 140, 150, 150, 160]);
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Buku Besar Kas', [110, 340, 140, 160, 160, 170]);
 
     return { success: true, message: 'Buku Besar Kas berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -917,7 +1000,7 @@ export async function syncAllFinancialReportsToSheet(options?: {
     let month = options?.month;
     const periodType = options?.periodType || 'year';
 
-    // SMART AUTO-DETECTION: Jika tahun tidak ditentukan, ambil tahun dari transaksi aktif terbaru
+    // SMART AUTO-DETECTION: Jika tahun tidak ditentukan, ambil tahun dari transaksi terbaru atau 2025/2026
     if (year === undefined || year === null) {
       const latestTrx = await prisma.transaction.findFirst({
         orderBy: { date: 'desc' },
@@ -943,16 +1026,16 @@ export async function syncAllFinancialReportsToSheet(options?: {
 
     if (periodType === 'all') {
       startDate = new Date(2020, 0, 1);
-      endDate = new Date(year, 11, 31, 23, 59, 59);
+      endDate = new Date(year, 11, 31, 23, 59, 59, 999);
     } else if (periodType === 'year') {
       startDate = new Date(year, 0, 1);
-      endDate = new Date(year, 11, 31, 23, 59, 59);
+      endDate = new Date(year, 11, 31, 23, 59, 59, 999);
     } else {
       startDate = new Date(year, month, 1);
-      endDate = new Date(year, month + 1, 0, 23, 59, 59);
+      endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
     }
 
-    // Jalankan secara sekuensial agar aman dan tidak membebani koneksi
+    // Jalankan secara sekuensial agar aman dan tidak membebani koneksi Google Sheets
     const incRes = await syncIncomeStatementToSheet(startDate, endDate);
     const balRes = await syncBalanceSheetToSheet(endDate);
     const cfRes = await syncCashFlowToSheet(startDate, endDate);
@@ -984,7 +1067,7 @@ export async function syncMonthlyFinancialReportToSheet(targetYear?: number, tar
 // RETRY SYNC UNTUK DATA PENDING & COMPACT
 // ==========================================
 
-export async function retryPendingSync() {
+export async function retryPendingSync(targetYear?: number) {
   const client = getGoogleAuthClient();
   if (!client) {
     return {
@@ -1000,7 +1083,7 @@ export async function retryPendingSync() {
     const compactResult = await compactPembukuanSheet();
 
     // 2. Perbarui seluruh Tab Laporan
-    const reportResult = await syncAllFinancialReportsToSheet();
+    const reportResult = await syncAllFinancialReportsToSheet({ year: targetYear });
 
     return {
       success: compactResult.success && reportResult.success,

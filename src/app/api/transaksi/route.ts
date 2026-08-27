@@ -22,6 +22,8 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search')?.trim();
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const year = searchParams.get('year');
+    const month = searchParams.get('month');
     const all = searchParams.get('all') === 'true';
 
     // Pagination parameters
@@ -46,10 +48,27 @@ export async function GET(req: NextRequest) {
         { description: { contains: search, mode: 'insensitive' } },
         { category: { contains: search, mode: 'insensitive' } },
         { account: { name: { contains: search, mode: 'insensitive' } } },
+        { account: { code: { contains: search, mode: 'insensitive' } } },
       ];
     }
 
-    if (startDate || endDate) {
+    if (year) {
+      const y = parseInt(year, 10);
+      if (!isNaN(y)) {
+        if (month !== null && month !== undefined && month !== '' && month !== 'ALL') {
+          const m = parseInt(month, 10);
+          if (!isNaN(m)) {
+            const start = new Date(y, m, 1);
+            const end = new Date(y, m + 1, 0, 23, 59, 59, 999);
+            where.date = { gte: start, lte: end };
+          }
+        } else {
+          const start = new Date(y, 0, 1);
+          const end = new Date(y, 11, 31, 23, 59, 59, 999);
+          where.date = { gte: start, lte: end };
+        }
+      }
+    } else if (startDate || endDate) {
       where.date = {};
       if (startDate) {
         where.date.gte = new Date(startDate);
@@ -203,6 +222,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const normalizedDate =
+      typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+        ? new Date(`${date}T12:00:00.000Z`)
+        : new Date(date);
+
     // 1. Simpan ke Database
     const transaction = await prisma.transaction.create({
       data: {
@@ -211,7 +235,7 @@ export async function POST(req: NextRequest) {
         accountId: accountId || null,
         description,
         amount,
-        date: new Date(date),
+        date: normalizedDate,
         createdById: session.user.id,
         syncedToSheet: false,
       },
@@ -249,6 +273,8 @@ export async function POST(req: NextRequest) {
             id: transaction.id,
             type: transaction.type,
             category: transaction.category,
+            accountCode: transaction.account?.code,
+            accountName: transaction.account?.name || transaction.category,
             description: transaction.description,
             amount: Number(transaction.amount),
             date: transaction.date,

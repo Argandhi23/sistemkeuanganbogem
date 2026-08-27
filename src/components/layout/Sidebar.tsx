@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react';
 import {
   LayoutDashboard,
   Wallet,
+  ShoppingBag,
   FileText,
   BookOpen,
   Users,
@@ -31,6 +32,11 @@ export function Sidebar() {
       name: 'Buku Kas & Transaksi',
       href: '/transaksi',
       icon: Wallet,
+    },
+    {
+      name: 'Pesanan Catering',
+      href: '/pesanan',
+      icon: ShoppingBag,
     },
     {
       name: 'Laporan Keuangan',

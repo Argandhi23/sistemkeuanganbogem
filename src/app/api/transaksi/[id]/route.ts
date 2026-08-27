@@ -77,6 +77,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       }
     }
 
+    const normalizedDate =
+      typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+        ? new Date(`${date}T12:00:00.000Z`)
+        : new Date(date);
+
     // 1. Update Database
     const updated = await prisma.transaction.update({
       where: { id: params.id },
@@ -86,7 +91,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         accountId: accountId || null,
         description,
         amount,
-        date: new Date(date),
+        date: normalizedDate,
       },
       include: {
         account: true,
@@ -113,6 +118,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
               id: updated.id,
               type: updated.type,
               category: updated.category,
+              accountCode: updated.account?.code,
+              accountName: updated.account?.name || updated.category,
               description: updated.description,
               amount: Number(updated.amount),
               date: updated.date,
