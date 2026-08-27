@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
-import { syncAllFinancialReportsToSheet } from '@/lib/googleSheets';
+import { syncAllFinancialReportsToSheet, compactPembukuanSheet } from '@/lib/googleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +14,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { year, month, periodType } = body;
 
+    // 1. Bersihkan sheet Pembukuan dari baris yang dihapus
+    await compactPembukuanSheet().catch(() => {});
+
+    // 2. Sinkronkan seluruh laporan sesuai tahun/periode yang dipilih atau auto-detect
     const result = await syncAllFinancialReportsToSheet({
       year: typeof year === 'number' ? year : undefined,
       month: typeof month === 'number' ? month : undefined,
@@ -22,8 +26,8 @@ export async function POST(req: NextRequest) {
 
     if (result.success) {
       return NextResponse.json({
-        message: 'Seluruh lembar laporan (Laba Rugi, Neraca, Arus Kas, Perubahan Modal, dan Buku Besar Kas) berhasil disinkronkan ke Google Sheets!',
-        details: result.details,
+        message: `Laporan Keuangan (Tahun ${result.year}) berhasil disinkronkan & spreadsheet telah dibersihkan!`,
+        data: result,
       });
     } else {
       return NextResponse.json(

@@ -747,49 +747,46 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
   const cutoffDate = new Date(asOfDateInput);
   cutoffDate.setHours(23, 59, 59, 999);
 
-  // Jalankan agregasi transaksi dan master akun secara PARALEL
-  const [allTimeTotals, assignedAggregates, unassignedAggregates, accounts] = await Promise.all([
-    // 1. Total Seluruh Kas Masuk & Keluar hingga cutoffDate
-    prisma.transaction.groupBy({
-      by: ['type'],
-      where: {
-        date: { lte: cutoffDate },
-      },
-      _sum: { amount: true },
-    }),
+  // 1. Total Seluruh Kas Masuk & Keluar hingga cutoffDate
+  const allTimeTotals = await prisma.transaction.groupBy({
+    by: ['type'],
+    where: {
+      date: { lte: cutoffDate },
+    },
+    _sum: { amount: true },
+  });
 
-    // 2. Agregasi Saldo per Akun Terdaftar
-    prisma.transaction.groupBy({
-      by: ['accountId', 'type'],
-      where: {
-        date: { lte: cutoffDate },
-        accountId: { not: null },
-      },
-      _sum: { amount: true },
-    }),
+  // 2. Agregasi Saldo per Akun Terdaftar
+  const assignedAggregates = await prisma.transaction.groupBy({
+    by: ['accountId', 'type'],
+    where: {
+      date: { lte: cutoffDate },
+      accountId: { not: null },
+    },
+    _sum: { amount: true },
+  });
 
-    // 3. Agregasi Saldo Transaksi Legacy Tanpa AccountId
-    prisma.transaction.groupBy({
-      by: ['category', 'type'],
-      where: {
-        date: { lte: cutoffDate },
-        accountId: null,
-      },
-      _sum: { amount: true },
-    }),
+  // 3. Agregasi Saldo Transaksi Legacy Tanpa AccountId
+  const unassignedAggregates = await prisma.transaction.groupBy({
+    by: ['category', 'type'],
+    where: {
+      date: { lte: cutoffDate },
+      accountId: null,
+    },
+    _sum: { amount: true },
+  });
 
-    // 4. Master Bagan Akun
-    prisma.account.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        code: true,
-        name: true,
-        category: true,
-      },
-      orderBy: { code: 'asc' },
-    }),
-  ]);
+  // 4. Master Bagan Akun
+  const accounts = await prisma.account.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      category: true,
+    },
+    orderBy: { code: 'asc' },
+  });
 
   // Hitung Posisi Kas Riil
   let totalCashIn = 0;

@@ -1,4 +1,4 @@
-import { google } from 'googleapis';
+import { google, sheets_v4 } from 'googleapis';
 import prisma from './prisma';
 import {
   getIncomeStatement,
@@ -56,6 +56,43 @@ function extractRowNumberFromRange(rangeStr?: string | null): number | null {
     return parseInt(match[1], 10);
   }
   return null;
+}
+
+// Helper untuk mengatur lebar kolom (Pixel Width) pada sheet tertentu
+export async function setSheetColumnWidths(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetTitle: string,
+  widths: number[]
+) {
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const sheet = meta.data.sheets?.find((s) => s.properties?.title === sheetTitle);
+    if (!sheet?.properties?.sheetId && sheet?.properties?.sheetId !== 0) return;
+    const sheetId = sheet.properties.sheetId;
+
+    const requests = widths.map((pixelSize, index) => ({
+      updateDimensionProperties: {
+        range: {
+          sheetId,
+          dimension: 'COLUMNS',
+          startIndex: index,
+          endIndex: index + 1,
+        },
+        properties: {
+          pixelSize,
+        },
+        fields: 'pixelSize',
+      },
+    }));
+
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests },
+    });
+  } catch (err) {
+    console.warn(`Gagal mengatur lebar kolom untuk sheet "${sheetTitle}":`, err);
+  }
 }
 
 // Cache status header agar tidak berulang kali memanggil Google Sheets API metadata
@@ -122,6 +159,9 @@ export async function ensureSheetHeaders(force = false) {
         },
       });
     }
+
+    // Atur lebar kolom untuk sheet Pembukuan
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Pembukuan', [120, 130, 240, 320, 160, 180, 220]);
 
     lastHeadersEnsured = now;
     return { success: true };
@@ -250,43 +290,137 @@ export async function updateTransactionRow(
   }
 }
 
-export async function clearTransactionRow(sheetRowId: number | null | undefined, trxId: string) {
+/**
+ * Menghapus baris transaksi secara fisik dari Google Sheets (deleteDimension)
+ * sehingga tidak meninggalkan tulisan [DIHAPUS DARI SISTEM]
+ */
+export async function clearTransactionRow(sheetRowId?: number | null, trxId?: string) {
   const client = getGoogleAuthClient();
   if (!client) return { success: false, reason: 'Credentials not configured' };
 
   const sheets = google.sheets({ version: 'v4', auth: client.auth });
 
   try {
+    // 1. Dapatkan SheetId tab "Pembukuan"
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId: client.spreadsheetId,
+    });
+    const pembukuanSheet = spreadsheet.data.sheets?.find(
+      (s) => s.properties?.title === 'Pembukuan'
+    );
+    const sheetId = pembukuanSheet?.properties?.sheetId ?? 0;
+
     let targetRow = sheetRowId;
 
-    if (!targetRow) {
-      const allRows = await sheets.spreadsheets.values.get({
+    // 2. Cari baris berdasarkan ID Transaksi di Kolom G jika sheetRowId belum diketahui
+    if (!targetRow && trxId) {
+      const colG = await sheets.spreadsheets.values.get({
         spreadsheetId: client.spreadsheetId,
-        range: 'Pembukuan!A:G',
+        range: 'Pembukuan!G:G',
       });
-      const rows = allRows.data.values || [];
-      const index = rows.findIndex((r) => r[6] === trxId);
+      const rows = colG.data.values || [];
+      const index = rows.findIndex((r) => r[0] && String(r[0]).trim() === trxId.trim());
       if (index !== -1) {
-        targetRow = index + 1;
+        targetRow = index + 1; // 1-indexed
       }
     }
 
-    if (!targetRow) return { success: true };
+    // 3. Hapus baris secara fisik jika ditemukan
+    if (targetRow && targetRow > 1) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: client.spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              deleteDimension: {
+                range: {
+                  sheetId,
+                  dimension: 'ROWS',
+                  startIndex: targetRow - 1, // 0-indexed inclusive
+                  endIndex: targetRow,       // 0-indexed exclusive
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: client.spreadsheetId,
-      range: `Pembukuan!A${targetRow}:G${targetRow}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [['[DIHAPUS]', '-', '-', '-', 0, '-', trxId]],
-      },
-    });
-
+    // Perbarui laporan di Google Sheets secara otomatis
     triggerDebouncedReportSync();
 
     return { success: true };
   } catch (error) {
-    console.error('Error clearing transaction in Google Sheets:', error);
+    console.error('Error deleting transaction row from Google Sheets:', error);
+    return { success: false, error };
+  }
+}
+
+/**
+ * Membersihkan seluruh tab Pembukuan dan mengisi ulang hanya dengan transaksi aktif
+ * (Menghapus seluruh baris lama [DIHAPUS DARI SISTEM] secara instan)
+ */
+export async function compactPembukuanSheet() {
+  const client = getGoogleAuthClient();
+  if (!client) return { success: false, reason: 'Credentials not configured' };
+
+  const sheets = google.sheets({ version: 'v4', auth: client.auth });
+
+  try {
+    await ensureSheetHeaders(true);
+
+    const activeTransactions = await prisma.transaction.findMany({
+      orderBy: { date: 'asc' },
+      include: { createdBy: { select: { name: true } } },
+    });
+
+    const header = [
+      'Tanggal',
+      'Tipe Transaksi',
+      'Kategori Pos',
+      'Deskripsi',
+      'Jumlah (Rp)',
+      'Diinput Oleh',
+      'ID Transaksi',
+    ];
+
+    const rows = activeTransactions.map((trx) => [
+      formatDateIndo(trx.date),
+      trx.type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar',
+      trx.category,
+      trx.description,
+      Number(trx.amount),
+      trx.createdBy?.name || 'Petugas',
+      trx.id,
+    ]);
+
+    // Bersihkan seluruh tab Pembukuan
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Pembukuan!A1:Z5000',
+    }).catch(() => {});
+
+    // Tulis data baru yang bersih
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: client.spreadsheetId,
+      range: 'Pembukuan!A1:G' + (rows.length + 1),
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: [header, ...rows],
+      },
+    });
+
+    // Tandai semua transaksi di database sebagai tersinkron
+    await prisma.transaction.updateMany({
+      data: { syncedToSheet: true },
+    });
+
+    // Atur ulang lebar kolom
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Pembukuan', [120, 130, 240, 320, 160, 180, 220]);
+
+    return { success: true, count: rows.length };
+  } catch (error) {
+    console.error('Error compacting Pembukuan sheet:', error);
     return { success: false, error };
   }
 }
@@ -299,7 +433,7 @@ export function triggerDebouncedReportSync() {
   }
   debounceReportSyncTimer = setTimeout(() => {
     syncAllFinancialReportsToSheet().catch(() => {});
-  }, 5000);
+  }, 4000);
 }
 
 // ==========================================
@@ -319,8 +453,8 @@ export async function syncIncomeStatementToSheet(
     await ensureSheetHeaders();
 
     const now = new Date();
-    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), 0, 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 
     const incomeStatement = await getIncomeStatement(startDate, endDate);
 
@@ -343,7 +477,7 @@ export async function syncIncomeStatementToSheet(
         rawValues.push([acc.code, acc.name, acc.total, `${acc.transactionCount} transaksi`]);
       }
     }
-    rawValues.push(['', 'TOTAL PENDAPATAN (A)', incomeStatement.revenue.total, '']);
+    rawValues.push(['', 'TOTAL PENDAPATAN USAHA (A)', incomeStatement.revenue.total, '']);
     rawValues.push(['', '', '', '']);
 
     rawValues.push(['B. BEBAN OPERASIONAL', '', '', '']);
@@ -369,7 +503,7 @@ export async function syncIncomeStatementToSheet(
     rawValues.push(['', 'TOTAL BEBAN NON-OPERASIONAL (C)', incomeStatement.nonOperatingExpenses.total, '']);
     rawValues.push([
       '',
-      'LABA / RUGI BERSIH PERIODE BERJALAN',
+      'LABA / (RUGI) BERSIH PERIODE BERJALAN',
       incomeStatement.netIncome,
       incomeStatement.netIncome >= 0 ? 'Surplus Laba' : 'Defisit Rugi',
     ]);
@@ -388,6 +522,9 @@ export async function syncIncomeStatementToSheet(
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: rawValues },
     });
+
+    // Atur lebar kolom proporsional
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Laba Rugi', [120, 320, 180, 220]);
 
     return { success: true, message: 'Laporan Laba Rugi berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -500,6 +637,9 @@ export async function syncBalanceSheetToSheet(asOfDateInput?: Date | string) {
       requestBody: { values: rawValues },
     });
 
+    // Atur lebar kolom proporsional
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Neraca Keuangan', [120, 320, 180, 220]);
+
     return { success: true, message: `Neraca Keuangan per ${dateFormatted} berhasil disinkronkan ke Google Sheets` };
   } catch (error) {
     console.error('Error syncBalanceSheetToSheet:', error);
@@ -524,8 +664,8 @@ export async function syncCashFlowToSheet(
     await ensureSheetHeaders();
 
     const now = new Date();
-    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), 0, 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 
     const cashFlow = await getCashFlowSummary(startDate, endDate);
 
@@ -606,6 +746,9 @@ export async function syncCashFlowToSheet(
       requestBody: { values: rawValues },
     });
 
+    // Atur lebar kolom proporsional
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Arus Kas', [120, 340, 180, 220]);
+
     return { success: true, message: 'Laporan Arus Kas berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
     console.error('Error syncCashFlowToSheet:', error);
@@ -630,8 +773,8 @@ export async function syncEquityStatementToSheet(
     await ensureSheetHeaders();
 
     const now = new Date();
-    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), 0, 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 
     const equityStatement = await getEquityStatement(startDate, endDate);
 
@@ -666,6 +809,9 @@ export async function syncEquityStatementToSheet(
       requestBody: { values: rawValues },
     });
 
+    // Atur lebar kolom proporsional
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Laporan Perubahan Modal', [80, 360, 180, 220]);
+
     return { success: true, message: 'Laporan Perubahan Modal berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
     console.error('Error syncEquityStatementToSheet:', error);
@@ -690,8 +836,8 @@ export async function syncGeneralLedgerToSheet(
     await ensureSheetHeaders();
 
     const now = new Date();
-    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const startDate = startDateInput ? new Date(startDateInput) : new Date(now.getFullYear(), 0, 1);
+    const endDate = endDateInput ? new Date(endDateInput) : new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 
     const kasAccount = await prisma.account.findFirst({
       where: { code: '1001' },
@@ -734,7 +880,7 @@ export async function syncGeneralLedgerToSheet(
 
     await sheets.spreadsheets.values.clear({
       spreadsheetId: client.spreadsheetId,
-      range: 'Buku Besar Kas!A1:Z1000',
+      range: 'Buku Besar Kas!A1:Z5000',
     }).catch(() => {});
 
     await sheets.spreadsheets.values.update({
@@ -743,6 +889,9 @@ export async function syncGeneralLedgerToSheet(
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: rawValues },
     });
+
+    // Atur lebar kolom proporsional
+    await setSheetColumnWidths(sheets, client.spreadsheetId, 'Buku Besar Kas', [110, 320, 140, 150, 150, 160]);
 
     return { success: true, message: 'Buku Besar Kas berhasil disinkronkan ke Google Sheets' };
   } catch (error) {
@@ -763,27 +912,47 @@ export async function syncAllFinancialReportsToSheet(options?: {
   const client = getGoogleAuthClient();
   if (!client) return { success: false, reason: 'Credentials not configured' };
 
-  const now = new Date();
-  const year = options?.year !== undefined ? options.year : now.getFullYear();
-  const month = options?.month !== undefined ? options.month : now.getMonth();
-  const periodType = options?.periodType || 'month';
-
-  let startDate: Date;
-  let endDate: Date;
-
-  if (periodType === 'all') {
-    startDate = new Date(2020, 0, 1);
-    endDate = new Date(year, 11, 31, 23, 59, 59);
-  } else if (periodType === 'year') {
-    startDate = new Date(year, 0, 1);
-    endDate = new Date(year, 11, 31, 23, 59, 59);
-  } else {
-    startDate = new Date(year, month, 1);
-    endDate = new Date(year, month + 1, 0, 23, 59, 59);
-  }
-
   try {
-    // Jalankan secara sekuensial agar tidak membebani connection pool Supabase
+    let year = options?.year;
+    let month = options?.month;
+    const periodType = options?.periodType || 'year';
+
+    // SMART AUTO-DETECTION: Jika tahun tidak ditentukan, ambil tahun dari transaksi aktif terbaru
+    if (year === undefined || year === null) {
+      const latestTrx = await prisma.transaction.findFirst({
+        orderBy: { date: 'desc' },
+        select: { date: true },
+      });
+
+      if (latestTrx) {
+        year = latestTrx.date.getFullYear();
+        month = latestTrx.date.getMonth();
+      } else {
+        const now = new Date();
+        year = now.getFullYear();
+        month = now.getMonth();
+      }
+    }
+
+    if (month === undefined || month === null) {
+      month = 0; // Default awal tahun
+    }
+
+    let startDate: Date;
+    let endDate: Date;
+
+    if (periodType === 'all') {
+      startDate = new Date(2020, 0, 1);
+      endDate = new Date(year, 11, 31, 23, 59, 59);
+    } else if (periodType === 'year') {
+      startDate = new Date(year, 0, 1);
+      endDate = new Date(year, 11, 31, 23, 59, 59);
+    } else {
+      startDate = new Date(year, month, 1);
+      endDate = new Date(year, month + 1, 0, 23, 59, 59);
+    }
+
+    // Jalankan secara sekuensial agar aman dan tidak membebani koneksi
     const incRes = await syncIncomeStatementToSheet(startDate, endDate);
     const balRes = await syncBalanceSheetToSheet(endDate);
     const cfRes = await syncCashFlowToSheet(startDate, endDate);
@@ -794,7 +963,10 @@ export async function syncAllFinancialReportsToSheet(options?: {
 
     return {
       success: allSuccess,
-      message: 'Seluruh lembar laporan (Laba Rugi, Neraca, Arus Kas, Perubahan Modal, dan Buku Besar Kas) berhasil disinkronkan ke Google Sheets',
+      year,
+      month,
+      periodType,
+      message: `Seluruh laporan keuangan (Tahun ${year}) berhasil disinkronkan ke Google Sheets`,
       details: { incRes, balRes, cfRes, eqRes, glRes },
     };
   } catch (error) {
@@ -809,7 +981,7 @@ export async function syncMonthlyFinancialReportToSheet(targetYear?: number, tar
 }
 
 // ==========================================
-// RETRY SYNC UNTUK DATA PENDING
+// RETRY SYNC UNTUK DATA PENDING & COMPACT
 // ==========================================
 
 export async function retryPendingSync() {
@@ -823,105 +995,26 @@ export async function retryPendingSync() {
     };
   }
 
-  const sheets = google.sheets({ version: 'v4', auth: client.auth });
-  let syncedCount = 0;
-  let failedCount = 0;
-
   try {
-    await ensureSheetHeaders();
+    // 1. Lakukan pembersihan dan kompaksi sheet Pembukuan secara menyeluruh
+    const compactResult = await compactPembukuanSheet();
 
-    // 1. Ambil transaksi belum tersinkron
-    const pendingTransactions = await prisma.transaction.findMany({
-      where: { syncedToSheet: false },
-      include: { createdBy: { select: { name: true } } },
-      orderBy: { date: 'asc' },
-    });
-
-    if (pendingTransactions.length > 0) {
-      // Ambil seluruh ID Transaksi yang telah tercatat di Google Sheets (Kolom G) untuk mencegah duplikasi baris
-      const existingSheetData = await sheets.spreadsheets.values.get({
-        spreadsheetId: client.spreadsheetId,
-        range: 'Pembukuan!G:G',
-      }).catch(() => null);
-
-      const existingIds = new Set<string>(
-        (existingSheetData?.data.values || [])
-          .map((row) => (row[0] ? String(row[0]).trim() : ''))
-          .filter(Boolean)
-      );
-
-      const toAppend: typeof pendingTransactions = [];
-      const alreadyPresentIds: string[] = [];
-
-      for (const trx of pendingTransactions) {
-        if (existingIds.has(trx.id)) {
-          alreadyPresentIds.push(trx.id);
-        } else {
-          toAppend.push(trx);
-        }
-      }
-
-      // Tandai yang sudah ada di sheet sebagai synced
-      if (alreadyPresentIds.length > 0) {
-        await prisma.transaction.updateMany({
-          where: { id: { in: alreadyPresentIds } },
-          data: { syncedToSheet: true },
-        });
-        syncedCount += alreadyPresentIds.length;
-      }
-
-      // Append yang benar-benar baru
-      if (toAppend.length > 0) {
-        const rows = toAppend.map((trx) => [
-          formatDateIndo(trx.date),
-          trx.type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar',
-          trx.category,
-          trx.description,
-          Number(trx.amount),
-          trx.createdBy?.name || 'Petugas',
-          trx.id,
-        ]);
-
-        const res = await sheets.spreadsheets.values.append({
-          spreadsheetId: client.spreadsheetId,
-          range: 'Pembukuan!A:G',
-          valueInputOption: 'USER_ENTERED',
-          insertDataOption: 'INSERT_ROWS',
-          requestBody: {
-            values: rows,
-          },
-        });
-
-        if (res.status === 200) {
-          await prisma.transaction.updateMany({
-            where: { id: { in: toAppend.map((t) => t.id) } },
-            data: { syncedToSheet: true },
-          });
-          syncedCount += toAppend.length;
-        } else {
-          failedCount += toAppend.length;
-        }
-      }
-    }
-
-    // 2. Perbarui seluruh Tab Laporan secara paralel
-    await syncAllFinancialReportsToSheet().catch(() => {});
+    // 2. Perbarui seluruh Tab Laporan
+    const reportResult = await syncAllFinancialReportsToSheet();
 
     return {
-      success: failedCount === 0,
-      message: `Berhasil menyinkronkan ${syncedCount} transaksi serta memperbarui seluruh lembar laporan ke Google Sheets.${
-        failedCount > 0 ? ` (${failedCount} gagal)` : ''
-      }`,
-      syncedCount,
-      failedCount,
+      success: compactResult.success && reportResult.success,
+      message: `Berhasil menyinkronkan ${compactResult.count ?? 0} transaksi serta memperbarui seluruh lembar laporan ke Google Sheets.`,
+      syncedCount: compactResult.count ?? 0,
+      failedCount: 0,
     };
   } catch (error) {
     console.error('Error in retryPendingSync:', error);
     return {
       success: false,
       message: 'Terjadi kesalahan saat memproses sinkronisasi ke Google Sheets',
-      syncedCount,
-      failedCount,
+      syncedCount: 0,
+      failedCount: 0,
     };
   }
 }

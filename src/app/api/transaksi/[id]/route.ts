@@ -175,16 +175,14 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       detail: `Hapus transaksi: ${existing.category} - Rp ${Number(existing.amount).toLocaleString('id-ID')} (${existing.description})`,
     }).catch((err) => console.warn('Activity log error:', err));
 
-    // 3. Clear di Google Sheets di latar belakang jika ada sheetRowId
-    if (existing.sheetRowId) {
-      (async () => {
-        try {
-          await clearTransactionRow(existing.sheetRowId, existing.id);
-        } catch (sheetError) {
-          console.warn('Gagal clear baris di Google Sheets:', sheetError);
-        }
-      })();
-    }
+    // 3. Hapus baris secara fisik dari Google Sheets di latar belakang
+    (async () => {
+      try {
+        await clearTransactionRow(existing.sheetRowId, existing.id);
+      } catch (sheetError) {
+        console.warn('Gagal menghapus baris di Google Sheets:', sheetError);
+      }
+    })();
 
     return NextResponse.json({
       message: 'Data transaksi berhasil dihapus',
