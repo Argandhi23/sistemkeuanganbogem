@@ -90,18 +90,26 @@ export default function EditTransaksiPage() {
   }, [id]);
 
   const getValidAccountsForType = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
-    const nonCash = accList.filter((a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102');
+    const nonCash = accList.filter(
+      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
+    );
 
     if (trxType === 'PEMASUKAN') {
       return nonCash.filter(
-        (a) => a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.code === '1003'
+        (a) =>
+          a.category === 'PENDAPATAN' ||
+          a.category === 'MODAL' ||
+          a.code === '1003'
       );
     } else {
       return nonCash.filter(
         (a) =>
           a.category === 'BEBAN_OPERASIONAL' ||
           a.category === 'BEBAN_NON_OPERASIONAL' ||
-          a.code === '1005' ||
+          a.code === '1004' || // Persediaan Bahan Baku
+          a.code === '1005' || // Perlengkapan Usaha & Kemasan
+          a.code === '1201' || // Peralatan & Mesin Catering (Aset Tetap)
+          a.code.startsWith('12') ||
           a.category === 'KEWAJIBAN' ||
           a.category === 'MODAL'
       );
@@ -205,13 +213,32 @@ export default function EditTransaksiPage() {
   }
 
   if (isSuccess) {
+    const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
     return (
-      <SuccessFeedback
-        title="Perubahan Disimpan"
-        message="Catatan transaksi telah diperbarui di database dan Google Sheets."
-        primaryActionText="Kembali ke Buku Kas"
-        primaryActionHref="/transaksi"
-      />
+      <div className="max-w-xl mx-auto space-y-5">
+        <PageHeader
+          title="Edit Transaksi"
+          description="Perbarui informasi uang masuk atau keluar unit catering"
+          backHref="/transaksi"
+          backLabel="Kembali ke Buku Kas"
+        />
+        <SuccessFeedback
+          title="Perubahan Berhasil Disimpan"
+          message="Catatan transaksi telah diperbarui di database dan disinkronkan ke Google Sheets."
+          details={{
+            type,
+            amount,
+            accountName: selectedAccount?.name,
+            accountCode: selectedAccount?.code,
+            date,
+            description,
+          }}
+          primaryActionText="Edit Transaksi Lagi"
+          onSecondaryClick={() => setIsSuccess(false)}
+          secondaryActionText="Kembali ke Buku Kas"
+          secondaryActionHref="/transaksi"
+        />
+      </div>
     );
   }
 

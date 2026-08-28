@@ -23,9 +23,9 @@ export default function BantuanPage() {
       steps: [
         'Klik tombol "+ Catat Uang Masuk" atau "- Catat Uang Keluar" di Beranda atau menu Kas.',
         'Ketik nominal uang (angka otomatis berformat titik pemisah ribuan, contoh: 100.000).',
-        'Pilih pos akun keuangan yang sesuai (misal: [4001] Pendapatan Catering atau [5001] Beban Bahan Baku Makanan).',
+        'Pilih pos akun keuangan yang sesuai: [5001] Bahan Baku Makanan (beras, ayam, bumbu), [5002] Perlengkapan & Kemasan (box, plastik, ATK), atau [1201] Peralatan & Mesin Catering (kompor, oven, etalase).',
         'Tentukan tanggal transaksi dan tulis rincian keterangan transaksi.',
-        'Klik "Simpan Transaksi". Data langsung tersimpan aman ke database dan disinkronkan.',
+        'Klik "Simpan Transaksi". Data langsung tersimpan aman ke database dan disinkronkan ke Google Sheets.',
       ],
     },
     {
@@ -35,7 +35,7 @@ export default function BantuanPage() {
         'Buka menu "Laporan Keuangan" lalu pilih tab "1. Neraca Keuangan".',
         'Pilih Bulan dan Tahun posisi neraca yang ingin ditinjau.',
         'Perhatikan indikator Status Neraca (harus "SEIMBANG / BALANCED" di mana Total Aset = Total Kewajiban + Ekuitas).',
-        'Sisi Kiri (Aktiva) merinci Kas Tunai Bendahara, Bank, Piutang, dan Aset Tetap Peralatan.',
+        'Sisi Kiri (Aktiva) merinci Kas Tunai, Bank, Piutang, Persediaan Bahan Baku (1004), Perlengkapan (1005), dan Aset Tetap Peralatan (1201).',
         'Sisi Kanan (Pasiva) merinci Utang Usaha, Modal Awal Desa, dan Laba/Rugi Bersih Berjalan secara otomatis.',
       ],
     },

@@ -42,11 +42,15 @@ async function main() {
   // 3. Seed Chart of Accounts (COA) 4-Digit Lengkap SAK EMKM BUMDes Bogem
   const defaultAccounts = [
     // 1xxx - ASET (AKTIVA)
+    // 1.1 Aset Lancar
     { code: '1001', name: 'Kas Tunai', category: AccountCategory.ASET },
     { code: '1002', name: 'Bank / Rekening Operasional', category: AccountCategory.ASET },
     { code: '1003', name: 'Piutang Usaha Catering', category: AccountCategory.ASET },
-    { code: '1004', name: 'Persediaan Bahan Baku & Bumbu', category: AccountCategory.ASET },
-    { code: '1005', name: 'Peralatan & Perlengkapan Catering', category: AccountCategory.ASET },
+    { code: '1004', name: 'Persediaan Bahan Baku & Bumbu Masak', category: AccountCategory.ASET },
+    { code: '1005', name: 'Perlengkapan Usaha & Kemasan', category: AccountCategory.ASET },
+    // 1.2 Aset Tetap
+    { code: '1201', name: 'Peralatan & Mesin Catering', category: AccountCategory.ASET },
+    { code: '1209', name: 'Akumulasi Penyusutan Peralatan', category: AccountCategory.ASET },
 
     // 2xxx - KEWAJIBAN (UTANG)
     { code: '2001', name: 'Utang Usaha / Supplier', category: AccountCategory.KEWAJIBAN },
@@ -59,13 +63,17 @@ async function main() {
     { code: '4001', name: 'Pendapatan Catering', category: AccountCategory.PENDAPATAN },
     { code: '4002', name: 'Pendapatan Usaha Lain-lain', category: AccountCategory.PENDAPATAN },
 
-    // 5xxx - BEBAN OPERASIONAL
+    // 5xxx - BEBAN OPERASIONAL (HPP & BEBAN USAHA)
     { code: '5001', name: 'Beban Bahan Baku Makanan', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5002', name: 'Beban Upah & Tenaga Kerja Masak', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5003', name: 'Beban Kemasan, Box & Plastik', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5004', name: 'Beban Transportasi & Pengantaran', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5005', name: 'Beban Gas Elpiji, Listrik & Air', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5006', name: 'Beban Operasional Lain-lain', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5002', name: 'Beban Perlengkapan & Kemasan', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5003', name: 'Beban Upah & Tenaga Kerja Masak', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5004', name: 'Beban Pemeliharaan & Penyusutan Peralatan', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5005', name: 'Beban Transportasi & Pengantaran', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5006', name: 'Beban Gas Elpiji, Listrik & Air', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5007', name: 'Beban Operasional Lain-lain', category: AccountCategory.BEBAN_OPERASIONAL },
+
+    // 6xxx - BEBAN NON-OPERASIONAL
+    { code: '6001', name: 'Beban Administrasi Bank & Non-Operasional', category: AccountCategory.BEBAN_NON_OPERASIONAL },
   ];
 
   const accountMap: Record<string, string> = {};

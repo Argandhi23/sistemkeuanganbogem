@@ -4,6 +4,7 @@ import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { z } from 'zod';
 import { logActivity } from '@/lib/activityLog';
+import { invalidateAccountsCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,6 +72,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data: updateData,
     });
 
+    // Invalidate cache
+    invalidateAccountsCache();
+
     await logActivity({
       userId: session.user.id,
       action: 'UPDATE_ACCOUNT',
@@ -127,6 +131,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
         detail: `Menonaktifkan kode akun [${existing.code}] ${existing.name} (karena memiliki ${existing._count.transactions} riwayat transaksi)`,
       });
 
+      invalidateAccountsCache();
+
       return NextResponse.json({
         message: `Akun dinonaktifkan karena memiliki ${existing._count.transactions} riwayat transaksi terkait`,
       });
@@ -143,6 +149,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       targetId: existing.id,
       detail: `Hapus kode akun [${existing.code}] ${existing.name}`,
     });
+
+    invalidateAccountsCache();
 
     return NextResponse.json({
       message: 'Kode akun keuangan berhasil dihapus',

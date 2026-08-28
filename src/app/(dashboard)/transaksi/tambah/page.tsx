@@ -51,19 +51,27 @@ function TambahTransaksiForm() {
   const [isSuccess, setIsSuccess] = useState(false);
 
   const getValidAccountsForType = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
-    // Saring keluar akun kas/bank karena kas/bank adalah akun pembukuan kas itu sendiri
-    const nonCash = accList.filter((a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102');
+    // Saring keluar akun kas/bank karena kas/bank adalah akun penampung mutasi kas itu sendiri
+    const nonCash = accList.filter(
+      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
+    );
 
     if (trxType === 'PEMASUKAN') {
       return nonCash.filter(
-        (a) => a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.code === '1003'
+        (a) =>
+          a.category === 'PENDAPATAN' ||
+          a.category === 'MODAL' ||
+          a.code === '1003'
       );
     } else {
       return nonCash.filter(
         (a) =>
           a.category === 'BEBAN_OPERASIONAL' ||
           a.category === 'BEBAN_NON_OPERASIONAL' ||
-          a.code === '1005' ||
+          a.code === '1004' || // Persediaan Bahan Baku
+          a.code === '1005' || // Perlengkapan Usaha & Kemasan
+          a.code === '1201' || // Peralatan & Mesin Catering (Aset Tetap)
+          a.code.startsWith('12') ||
           a.category === 'KEWAJIBAN' ||
           a.category === 'MODAL'
       );
@@ -160,21 +168,36 @@ function TambahTransaksiForm() {
   };
 
   if (isSuccess) {
+    const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
     return (
-      <SuccessFeedback
-        title="Transaksi Berhasil Disimpan"
-        message={`Catatan ${
-          type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar'
-        } sebesar Rp ${amount.toLocaleString('id-ID')} telah berhasil disimpan.`}
-        primaryActionText="Lihat Buku Kas"
-        primaryActionHref="/transaksi"
-        secondaryActionText="Catat Transaksi Lagi"
-        onSecondaryClick={() => {
-          setIsSuccess(false);
-          setAmount(0);
-          setDescription('');
-        }}
-      />
+      <div className="max-w-xl mx-auto space-y-5">
+        <PageHeader
+          title="Catat Transaksi Kas"
+          description="Pencatatan uang masuk atau keluar unit usaha catering BUMDes Bogem"
+          backHref="/transaksi"
+          backLabel="Kembali ke Buku Kas"
+        />
+        <SuccessFeedback
+          title={type === 'PEMASUKAN' ? 'Uang Masuk Berhasil Dicatat' : 'Uang Keluar Berhasil Dicatat'}
+          message="Data transaksi telah berhasil disimpan ke database dan disinkronkan ke Google Sheets."
+          details={{
+            type,
+            amount,
+            accountName: selectedAccount?.name || (type === 'PEMASUKAN' ? 'Pendapatan Catering' : 'Beban Operasional'),
+            accountCode: selectedAccount?.code,
+            date,
+            description,
+          }}
+          primaryActionText="Catat Transaksi Baru"
+          onSecondaryClick={() => {
+            setIsSuccess(false);
+            setAmount(0);
+            setDescription('');
+          }}
+          secondaryActionText="Buka Buku Kas & Transaksi"
+          secondaryActionHref="/transaksi"
+        />
+      </div>
     );
   }
 

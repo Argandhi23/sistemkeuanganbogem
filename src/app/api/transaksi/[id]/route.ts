@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma';
 import { transactionSchema } from '@/lib/validators';
 import { updateTransactionRow, clearTransactionRow } from '@/lib/googleSheets';
 import { logActivity } from '@/lib/activityLog';
+import { invalidateDashboardStatsCache } from '@/lib/cache';
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -99,6 +100,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       },
     });
 
+    // 1.5. Invalidate Dashboard Cache
+    invalidateDashboardStatsCache();
+
     // 2. Audit Trail (non-blocking)
     logActivity({
       userId: session.user.id,
@@ -172,6 +176,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     await prisma.transaction.delete({
       where: { id: params.id },
     });
+
+    // 1.5. Invalidate Dashboard Cache
+    invalidateDashboardStatsCache();
 
     // 2. Audit Trail (non-blocking)
     logActivity({

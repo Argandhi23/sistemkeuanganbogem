@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { getDashboardStatsCache, setDashboardStatsCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
-
-let cachedStats: { data: unknown; timestamp: number } | null = null;
-const STATS_CACHE_MS = 10 * 1000; // 10 detik cache in-memory untuk response super cepat
 
 export async function GET() {
   try {
@@ -14,10 +12,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Silakan login terlebih dahulu' }, { status: 401 });
     }
 
-    const nowTime = Date.now();
-    if (cachedStats && nowTime - cachedStats.timestamp < STATS_CACHE_MS) {
+    const cachedData = getDashboardStatsCache();
+    if (cachedData) {
       return NextResponse.json(
-        { data: cachedStats.data },
+        { data: cachedData },
         {
           headers: {
             'Cache-Control': 'private, max-age=10, stale-while-revalidate=30',
@@ -176,7 +174,7 @@ export async function GET() {
       recentTransactions,
     };
 
-    cachedStats = { data: payload, timestamp: nowTime };
+    setDashboardStatsCache(payload);
 
     return NextResponse.json({ data: payload });
   } catch (error) {

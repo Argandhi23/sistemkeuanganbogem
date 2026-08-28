@@ -270,13 +270,12 @@ export async function getIncomeStatement(
         catLower.includes(accLower) ||
         (catLower.includes('catering') && (a.code === '4001' || a.code === '401')) ||
         (catLower.includes('bahan baku') && (a.code === '5001' || a.code === '501')) ||
-        (catLower.includes('tenaga kerja') && (a.code === '5002' || a.code === '502')) ||
-        (catLower.includes('upah') && (a.code === '5002' || a.code === '502')) ||
-        (catLower.includes('kemasan') && (a.code === '5003' || a.code === '503')) ||
-        (catLower.includes('transportasi') && (a.code === '5004' || a.code === '504')) ||
-        (catLower.includes('gas') && (a.code === '5005' || a.code === '505')) ||
-        (catLower.includes('listrik') && (a.code === '5005' || a.code === '505')) ||
-        (catLower.includes('operasional') && (a.code === '5006' || a.code === '506'))
+        ((catLower.includes('perlengkapan') || catLower.includes('kemasan') || catLower.includes('box') || catLower.includes('plastik')) && (a.code === '5002' || a.code === '503')) ||
+        ((catLower.includes('tenaga kerja') || catLower.includes('upah') || catLower.includes('gaji')) && (a.code === '5003' || a.code === '502')) ||
+        ((catLower.includes('pemeliharaan') || catLower.includes('servis') || catLower.includes('perbaikan')) && a.code === '5004') ||
+        ((catLower.includes('transportasi') || catLower.includes('bensin') || catLower.includes('pengantaran')) && (a.code === '5005' || a.code === '504')) ||
+        ((catLower.includes('gas') || catLower.includes('listrik') || catLower.includes('air') || catLower.includes('elpiji')) && (a.code === '5006' || a.code === '505')) ||
+        (catLower.includes('operasional') && (a.code === '5007' || a.code === '5006' || a.code === '506'))
       );
     });
 
@@ -605,7 +604,12 @@ export async function getCashFlowSummary(
       where: {
         date: { gte: startDate, lte: endDate },
       },
-      include: {
+      select: {
+        id: true,
+        amount: true,
+        type: true,
+        date: true,
+        category: true,
         account: {
           select: { code: true, name: true, category: true },
         },
@@ -657,11 +661,12 @@ export async function getCashFlowSummary(
       if (cat === AccountCategory.MODAL || code.startsWith('3')) {
         finOutflows[code] = { code, name, amount: (finOutflows[code]?.amount || 0) + amt };
       } else if (
-        code === '1005' ||
-        code === '105' ||
-        cat === AccountCategory.ASET ||
+        code.startsWith('12') ||
+        code === '1201' ||
         name.toLowerCase().includes('peralatan') ||
-        name.toLowerCase().includes('inventaris')
+        name.toLowerCase().includes('mesin') ||
+        name.toLowerCase().includes('inventaris') ||
+        name.toLowerCase().includes('kendaraan')
       ) {
         invOutflows[code] = { code, name, amount: (invOutflows[code]?.amount || 0) + amt };
       } else {
@@ -798,15 +803,15 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
   }
   const netCashBalance = totalCashIn - totalCashOut;
 
-  // Map akun dan saldo
-  const accountMap = new Map(accounts.map((a) => [a.id, a]));
+  // Akumulasi Pendapatan & Beban Historis
+  let totalRevenue = 0;
+  let totalExpenses = 0;
   const accountBalances: Record<string, number> = {};
+
+  const accountMap = new Map(accounts.map((a) => [a.id, a]));
   for (const acc of accounts) {
     accountBalances[acc.code] = 0;
   }
-
-  let totalRevenue = 0;
-  let totalExpenses = 0;
 
   for (const item of assignedAggregates) {
     if (!item.accountId) continue;
@@ -847,10 +852,12 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
         catLower.includes(accLower) ||
         (catLower.includes('catering') && (a.code === '4001' || a.code === '401')) ||
         (catLower.includes('bahan baku') && (a.code === '5001' || a.code === '501')) ||
-        (catLower.includes('tenaga kerja') && (a.code === '5002' || a.code === '502')) ||
-        (catLower.includes('kemasan') && (a.code === '5003' || a.code === '503')) ||
-        (catLower.includes('transportasi') && (a.code === '5004' || a.code === '504')) ||
-        (catLower.includes('gas') && (a.code === '5005' || a.code === '505'))
+        ((catLower.includes('perlengkapan') || catLower.includes('kemasan') || catLower.includes('box') || catLower.includes('plastik')) && (a.code === '5002' || a.code === '503')) ||
+        ((catLower.includes('tenaga kerja') || catLower.includes('upah') || catLower.includes('gaji')) && (a.code === '5003' || a.code === '502')) ||
+        ((catLower.includes('pemeliharaan') || catLower.includes('servis') || catLower.includes('perbaikan')) && a.code === '5004') ||
+        ((catLower.includes('transportasi') || catLower.includes('bensin') || catLower.includes('pengantaran')) && (a.code === '5005' || a.code === '504')) ||
+        ((catLower.includes('gas') || catLower.includes('listrik') || catLower.includes('air') || catLower.includes('elpiji')) && (a.code === '5006' || a.code === '505')) ||
+        (catLower.includes('operasional') && (a.code === '5007' || a.code === '5006' || a.code === '506'))
       );
     });
 
@@ -883,13 +890,13 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
 
   const currentPeriodProfit = totalRevenue - totalExpenses;
 
-  // 1. ASET LANCAR
+  // 1. ASET LANCAR vs ASET TETAP
   const isFixedAsset = (acc: (typeof accounts)[0]) =>
-    acc.code === '1005' ||
-    acc.code === '105' ||
     acc.code.startsWith('12') ||
     acc.name.toLowerCase().includes('peralatan') ||
-    acc.name.toLowerCase().includes('inventaris');
+    acc.name.toLowerCase().includes('mesin') ||
+    acc.name.toLowerCase().includes('inventaris') ||
+    acc.name.toLowerCase().includes('kendaraan');
 
   const currentAssetAccounts = accounts.filter(
     (a) => a.category === AccountCategory.ASET && !isFixedAsset(a)

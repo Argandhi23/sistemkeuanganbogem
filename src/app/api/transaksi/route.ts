@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma';
 import { transactionSchema } from '@/lib/validators';
 import { appendTransactionRow } from '@/lib/googleSheets';
 import { logActivity } from '@/lib/activityLog';
+import { invalidateDashboardStatsCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -255,6 +256,9 @@ export async function POST(req: NextRequest) {
         },
       },
     });
+
+    // 1.5. Invalidate Dashboard Cache
+    invalidateDashboardStatsCache();
 
     // 2. Audit Trail (non-blocking)
     logActivity({

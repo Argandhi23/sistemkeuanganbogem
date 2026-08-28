@@ -49,7 +49,7 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-blue-50',
     text: 'text-blue-800',
     border: 'border-blue-200',
-    desc: 'Kas tunai, bank/rekening, piutang usaha, persediaan bahan baku, dan peralatan catering.',
+    desc: 'Kas tunai, bank, piutang, persediaan bahan baku (1004), perlengkapan (1005), dan peralatan catering (1201).',
   },
   KEWAJIBAN: {
     label: 'Kewajiban (Utang)',
@@ -81,7 +81,7 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-rose-50',
     text: 'text-rose-800',
     border: 'border-rose-200',
-    desc: 'Bahan baku makanan, upah tenaga masak, kemasan, transportasi, gas elpiji & listrik.',
+    desc: 'Bahan baku (5001), perlengkapan & kemasan (5002), upah masak (5003), pemeliharaan peralatan (5004), transportasi, gas & listrik.',
   },
   BEBAN_NON_OPERASIONAL: {
     label: 'Beban Non-Operasional',

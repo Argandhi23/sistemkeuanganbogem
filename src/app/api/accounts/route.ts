@@ -7,6 +7,8 @@ import { logActivity } from '@/lib/activityLog';
 
 export const dynamic = 'force-dynamic';
 
+import { getAccountsCache, setAccountsCache, invalidateAccountsCache } from '@/lib/cache';
+
 const accountCreateSchema = z.object({
   code: z.string().min(3, 'Kode akun minimal 3 digit').max(10, 'Kode akun maksimal 10 digit'),
   name: z.string().min(3, 'Nama akun minimal 3 karakter'),
@@ -19,9 +21,6 @@ const accountCreateSchema = z.object({
     'MODAL',
   ]),
 });
-
-let cachedAccounts: { data: unknown; timestamp: number } | null = null;
-const CACHE_TTL_MS = 30 * 1000; // 30 detik cache in-memory
 
 export async function GET(req: NextRequest) {
   try {
@@ -36,16 +35,18 @@ export async function GET(req: NextRequest) {
     const includeInactive = searchParams.get('all') === 'true';
 
     // Jika tanpa filter dan cache masih valid, gunakan cache
-    const now = Date.now();
-    if (!category && !search && !includeInactive && cachedAccounts && now - cachedAccounts.timestamp < CACHE_TTL_MS) {
-      return NextResponse.json(
-        { data: cachedAccounts.data },
-        {
-          headers: {
-            'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
-          },
-        }
-      );
+    if (!category && !search && !includeInactive) {
+      const cachedData = getAccountsCache();
+      if (cachedData) {
+        return NextResponse.json(
+          { data: cachedData },
+          {
+            headers: {
+              'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+            },
+          }
+        );
+      }
     }
 
     const where: Prisma.AccountWhereInput = {};
@@ -73,7 +74,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!category && !search && !includeInactive) {
-      cachedAccounts = { data: accounts, timestamp: now };
+      setAccountsCache(accounts);
     }
 
     return NextResponse.json(
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Invalidate cache
-    cachedAccounts = null;
+    invalidateAccountsCache();
 
     await logActivity({
       userId: session.user.id,
