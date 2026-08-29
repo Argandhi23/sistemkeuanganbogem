@@ -54,6 +54,7 @@ async function main() {
 
     // 2xxx - KEWAJIBAN (UTANG)
     { code: '2001', name: 'Utang Usaha / Supplier', category: AccountCategory.KEWAJIBAN },
+    { code: '2002', name: 'Utang Pinjaman (Bank / Pihak Ketiga)', category: AccountCategory.KEWAJIBAN },
 
     // 3xxx - EKUITAS (MODAL)
     { code: '3001', name: 'Modal Usaha / Modal Awal BUMDes', category: AccountCategory.MODAL },

@@ -99,6 +99,7 @@ export default function EditTransaksiPage() {
         (a) =>
           a.category === 'PENDAPATAN' ||
           a.category === 'MODAL' ||
+          a.category === 'KEWAJIBAN' ||
           a.code === '1003'
       );
     } else {

@@ -275,7 +275,8 @@ export async function getIncomeStatement(
         ((catLower.includes('pemeliharaan') || catLower.includes('servis') || catLower.includes('perbaikan')) && a.code === '5004') ||
         ((catLower.includes('transportasi') || catLower.includes('bensin') || catLower.includes('pengantaran')) && (a.code === '5005' || a.code === '504')) ||
         ((catLower.includes('gas') || catLower.includes('listrik') || catLower.includes('air') || catLower.includes('elpiji')) && (a.code === '5006' || a.code === '505')) ||
-        (catLower.includes('operasional') && (a.code === '5007' || a.code === '5006' || a.code === '506'))
+        (catLower.includes('operasional') && (a.code === '5007' || a.code === '5006' || a.code === '506')) ||
+        ((catLower.includes('utang') || catLower.includes('hutang') || catLower.includes('pinjaman')) && (a.category === AccountCategory.KEWAJIBAN || a.code.startsWith('2')))
       );
     });
 
@@ -649,7 +650,16 @@ export async function getCashFlowSummary(
       inflowMap[name] = (inflowMap[name] || 0) + amt;
       totalCashInflow += amt;
 
-      if (cat === AccountCategory.MODAL || code.startsWith('3')) {
+      const isFinancing =
+        cat === AccountCategory.MODAL ||
+        code.startsWith('3') ||
+        cat === AccountCategory.KEWAJIBAN ||
+        code.startsWith('2') ||
+        name.toLowerCase().includes('pinjaman') ||
+        name.toLowerCase().includes('utang') ||
+        name.toLowerCase().includes('hutang');
+
+      if (isFinancing) {
         finInflows[code] = { code, name, amount: (finInflows[code]?.amount || 0) + amt };
       } else {
         opInflows[code] = { code, name, amount: (opInflows[code]?.amount || 0) + amt };
@@ -658,7 +668,12 @@ export async function getCashFlowSummary(
       outflowMap[name] = (outflowMap[name] || 0) + amt;
       totalCashOutflow += amt;
 
-      if (cat === AccountCategory.MODAL || code.startsWith('3')) {
+      const isFinancingOutflow =
+        cat === AccountCategory.MODAL ||
+        code.startsWith('3') ||
+        (cat === AccountCategory.KEWAJIBAN && (code === '2002' || code.startsWith('22') || name.toLowerCase().includes('pinjaman')));
+
+      if (isFinancingOutflow) {
         finOutflows[code] = { code, name, amount: (finOutflows[code]?.amount || 0) + amt };
       } else if (
         code.startsWith('12') ||
@@ -857,7 +872,8 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
         ((catLower.includes('pemeliharaan') || catLower.includes('servis') || catLower.includes('perbaikan')) && a.code === '5004') ||
         ((catLower.includes('transportasi') || catLower.includes('bensin') || catLower.includes('pengantaran')) && (a.code === '5005' || a.code === '504')) ||
         ((catLower.includes('gas') || catLower.includes('listrik') || catLower.includes('air') || catLower.includes('elpiji')) && (a.code === '5006' || a.code === '505')) ||
-        (catLower.includes('operasional') && (a.code === '5007' || a.code === '5006' || a.code === '506'))
+        (catLower.includes('operasional') && (a.code === '5007' || a.code === '5006' || a.code === '506')) ||
+        ((catLower.includes('utang') || catLower.includes('hutang') || catLower.includes('pinjaman')) && (a.category === AccountCategory.KEWAJIBAN || a.code.startsWith('2')))
       );
     });
 
