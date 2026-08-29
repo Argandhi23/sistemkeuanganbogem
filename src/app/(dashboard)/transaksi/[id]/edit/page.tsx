@@ -131,6 +131,50 @@ export default function EditTransaksiPage() {
 
   const filteredAccounts = getValidAccountsForType(type, accounts);
 
+  const getAccountGroups = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
+    if (trxType === 'PEMASUKAN') {
+      const usaha = accList.filter(
+        (a) => a.code.startsWith('40') || (a.category === 'PENDAPATAN' && !a.code.startsWith('41'))
+      );
+      const nonOperasional = accList.filter((a) => a.code.startsWith('41'));
+      const modalDanUtang = accList.filter((a) => a.category === 'MODAL' || a.category === 'KEWAJIBAN');
+      const piutang = accList.filter((a) => a.code === '1003' || a.category === 'ASET');
+
+      return [
+        { label: '🍱 Pendapatan Usaha & Layanan', accounts: usaha },
+        { label: '🏦 Pendapatan Non-Operasional & Bunga Bank', accounts: nonOperasional },
+        { label: '💰 Penerimaan Modal & Pinjaman', accounts: modalDanUtang },
+        { label: '📋 Pelunasan Piutang Usaha', accounts: piutang },
+      ].filter((g) => g.accounts.length > 0);
+    } else {
+      const hpp = accList.filter((a) =>
+        ['5001', '5002', '5003', '5006', '1004', '1005'].includes(a.code)
+      );
+      const operasional = accList.filter(
+        (a) =>
+          ['5004', '5005', '5007', '5008', '5009', '5010'].includes(a.code) ||
+          (a.category === 'BEBAN_OPERASIONAL' && !['5001', '5002', '5003', '5006'].includes(a.code))
+      );
+      const asetTetap = accList.filter((a) => a.code.startsWith('12') || a.code === '1201');
+      const utang = accList.filter((a) => a.category === 'KEWAJIBAN' || a.code.startsWith('2'));
+      const pades = accList.filter((a) => a.code === '3004' || a.category === 'MODAL');
+      const nonOpex = accList.filter(
+        (a) => a.category === 'BEBAN_NON_OPERASIONAL' || a.code.startsWith('6')
+      );
+
+      return [
+        { label: '🛒 HPP & Belanja Dapur Langsung', accounts: hpp },
+        { label: '🚚 Beban Operasional, Distribusi & Pemasaran', accounts: operasional },
+        { label: '🍳 Belanja Modal / Pengadaan Alat (Aset Tetap)', accounts: asetTetap },
+        { label: '💳 Pembayaran & Angsuran Utang', accounts: utang },
+        { label: '🏛️ Penyaluran Bagi Hasil PADes ke Desa', accounts: pades },
+        { label: '🏦 Beban Administrasi Bank & Non-Operasional', accounts: nonOpex },
+      ].filter((g) => g.accounts.length > 0);
+    }
+  };
+
+  const accountGroups = getAccountGroups(type, filteredAccounts);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmittingRef.current || isLoading) return;
@@ -342,10 +386,14 @@ export default function EditTransaksiPage() {
               onChange={(e) => setSelectedAccountId(e.target.value)}
               className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
             >
-              {filteredAccounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  [{acc.code}] {acc.name} ({acc.category})
-                </option>
+              {accountGroups.map((group) => (
+                <optgroup key={group.label} label={group.label} className="font-semibold text-slate-700">
+                  {group.accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id} className="font-normal text-slate-900">
+                      [{acc.code}] {acc.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

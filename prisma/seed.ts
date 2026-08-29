@@ -59,19 +59,27 @@ async function main() {
     // 3xxx - EKUITAS (MODAL)
     { code: '3001', name: 'Modal Usaha / Modal Awal BUMDes', category: AccountCategory.MODAL },
     { code: '3002', name: 'Laba Ditahan', category: AccountCategory.MODAL },
+    { code: '3003', name: 'Penyertaan Modal Tambahan Desa / Hibah', category: AccountCategory.MODAL },
+    { code: '3004', name: 'Bagi Hasil PADes ke Kas Desa', category: AccountCategory.MODAL },
 
     // 4xxx - PENDAPATAN
-    { code: '4001', name: 'Pendapatan Catering', category: AccountCategory.PENDAPATAN },
+    { code: '4001', name: 'Pendapatan Catering (Nasi Box, Prasmanan, Snack)', category: AccountCategory.PENDAPATAN },
     { code: '4002', name: 'Pendapatan Usaha Lain-lain', category: AccountCategory.PENDAPATAN },
+    { code: '4003', name: 'Pendapatan Sewa Peralatan & Perlengkapan Catering', category: AccountCategory.PENDAPATAN },
+    { code: '4004', name: 'Pendapatan Jasa Pengantaran / Ongkir', category: AccountCategory.PENDAPATAN },
+    { code: '4101', name: 'Pendapatan Bunga Bank & Jasa Giro', category: AccountCategory.PENDAPATAN },
 
     // 5xxx - BEBAN OPERASIONAL (HPP & BEBAN USAHA)
-    { code: '5001', name: 'Beban Bahan Baku Makanan', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5002', name: 'Beban Perlengkapan & Kemasan', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5003', name: 'Beban Upah & Tenaga Kerja Masak', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5004', name: 'Beban Pemeliharaan & Penyusutan Peralatan', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5005', name: 'Beban Transportasi & Pengantaran', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5001', name: 'Beban Bahan Baku Makanan (Beras, Daging, Bumbu)', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5002', name: 'Beban Perlengkapan & Kemasan (Box, Plastik, Sendok)', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5003', name: 'Beban Upah & Tenaga Kerja Masak (Tukang Masak, Rewang)', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5004', name: 'Beban Pemeliharaan & Servis Peralatan Masak', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5005', name: 'Beban Transportasi, Bensin & Pengantaran', category: AccountCategory.BEBAN_OPERASIONAL },
     { code: '5006', name: 'Beban Gas Elpiji, Listrik & Air', category: AccountCategory.BEBAN_OPERASIONAL },
     { code: '5007', name: 'Beban Operasional Lain-lain', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5008', name: 'Beban Pengembalian Dana / Diskon Pelanggan', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5009', name: 'Beban Pemasaran, Spanduk & Promosi', category: AccountCategory.BEBAN_OPERASIONAL },
+    { code: '5010', name: 'Beban Kebersihan, Sampah & Retribusi Lingkungan', category: AccountCategory.BEBAN_OPERASIONAL },
 
     // 6xxx - BEBAN NON-OPERASIONAL
     { code: '6001', name: 'Beban Administrasi Bank & Non-Operasional', category: AccountCategory.BEBAN_NON_OPERASIONAL },
