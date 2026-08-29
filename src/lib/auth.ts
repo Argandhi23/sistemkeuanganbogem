@@ -97,7 +97,13 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  secret: process.env.NEXTAUTH_SECRET || 'bumdes-bogem-catering-secret-key-super-secure-2026',
+  secret:
+    process.env.NEXTAUTH_SECRET ||
+    (process.env.NODE_ENV === 'production'
+      ? (() => {
+          throw new Error('FATAL: Environment variable NEXTAUTH_SECRET wajib disetel di production!');
+        })()
+      : 'bumdes-bogem-catering-secret-key-development-only-2026'),
 };
 
 export const getAuthSession = () => getServerSession(authOptions);

@@ -3,6 +3,8 @@ import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { getDashboardStatsCache, setDashboardStatsCache } from '@/lib/cache';
 
+import { toNum } from '@/lib/formatters';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
@@ -25,19 +27,13 @@ export async function GET() {
     }
 
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
-    const startOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-
     // Rentang 6 bulan terakhir untuk grafik dan metrik bulanan
     const startOfSixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
-    // Jalankan query database secara paralel
+    // Jalankan query database secara paralel dan hemat memori
     const [
       allTimeTotals,
-      sixMonthsTransactions,
+      monthlyAggregates,
       unsyncedTransactions,
       recentTransactions,
     ] = await Promise.all([
@@ -47,16 +43,32 @@ export async function GET() {
         _sum: { amount: true },
       }),
 
-      // 2. Transaksi 6 bulan terakhir (hanya kolom yang dibutuhkan)
-      prisma.transaction.findMany({
-        where: {
-          date: { gte: startOfSixMonthsAgo },
-        },
-        select: {
-          date: true,
-          type: true,
-          amount: true,
-        },
+      // 2. Agregasi ringkas 6 bulan langsung di level database (SQL DATE TRUNC / TO_CHAR)
+      prisma.$queryRaw<Array<{ month_key: string; type: string; total: number }>>`
+        SELECT 
+          TO_CHAR("date" AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM') AS month_key,
+          "type"::text AS "type",
+          COALESCE(SUM("amount"), 0)::FLOAT AS total
+        FROM "Transaction"
+        WHERE "date" >= ${startOfSixMonthsAgo}
+        GROUP BY month_key, "type"
+        ORDER BY month_key ASC;
+      `.catch(async () => {
+        // Fallback aman jika terjadi anomali queryRaw
+        const raw = await prisma.transaction.findMany({
+          where: { date: { gte: startOfSixMonthsAgo } },
+          select: { date: true, type: true, amount: true },
+        });
+        const map = new Map<string, { month_key: string; type: string; total: number }>();
+        for (const r of raw) {
+          const d = new Date(r.date);
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const k = `${d.getFullYear()}-${mm}_${r.type}`;
+          const cur = map.get(k) || { month_key: `${d.getFullYear()}-${mm}`, type: r.type, total: 0 };
+          cur.total += toNum(r.amount);
+          map.set(k, cur);
+        }
+        return Array.from(map.values());
       }),
 
       // 3. Status Pending Google Sheets Sync
@@ -64,7 +76,7 @@ export async function GET() {
         where: { syncedToSheet: false },
       }),
 
-      // 4. Transaksi Terbaru (5 data terakhir)
+      // 4. Transaksi Terbaru (5 data terakhir dengan select optimal)
       prisma.transaction.findMany({
         select: {
           id: true,
@@ -95,7 +107,7 @@ export async function GET() {
     let totalIncome = 0;
     let totalExpense = 0;
     for (const item of allTimeTotals) {
-      const sum = Number(item._sum.amount || 0);
+      const sum = toNum(item._sum.amount);
       if (item.type === 'PEMASUKAN') totalIncome += sum;
       if (item.type === 'PENGELUARAN') totalExpense += sum;
     }
@@ -110,9 +122,14 @@ export async function GET() {
     const chartBuckets: { [key: string]: { name: string; pemasukan: number; pengeluaran: number } } = {};
     const chartData: Array<{ name: string; pemasukan: number; pengeluaran: number }> = [];
 
+    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const key = `${d.getFullYear()}-${mm}`;
       const name = `${monthNames[d.getMonth()]} ${d.getFullYear().toString().slice(-2)}`;
       const bucket = { name, pemasukan: 0, pengeluaran: 0 };
       chartBuckets[key] = bucket;
@@ -124,29 +141,24 @@ export async function GET() {
     let prvInc = 0;
     let prvExp = 0;
 
-    for (const trx of sixMonthsTransactions) {
-      const trxDate = new Date(trx.date);
-      const amt = Number(trx.amount || 0);
-      const isIncome = trx.type === 'PEMASUKAN';
+    for (const row of monthlyAggregates) {
+      const monthKey = row.month_key;
+      const amt = Number(row.total || 0);
+      const isIncome = row.type === 'PEMASUKAN';
 
-      // Cek apakah transaksi bulan ini
-      if (trxDate >= startOfMonth && trxDate <= endOfMonth) {
+      if (monthKey === currentMonthKey) {
         if (isIncome) curInc += amt;
         else curExp += amt;
-      }
-      // Cek apakah transaksi bulan lalu
-      else if (trxDate >= startOfPrevMonth && trxDate <= endOfPrevMonth) {
+      } else if (monthKey === prevMonthKey) {
         if (isIncome) prvInc += amt;
         else prvExp += amt;
       }
 
-      // Masukkan ke bucket chart bulan bersangkutan
-      const key = `${trxDate.getFullYear()}-${trxDate.getMonth()}`;
-      if (chartBuckets[key]) {
+      if (chartBuckets[monthKey]) {
         if (isIncome) {
-          chartBuckets[key].pemasukan += amt;
+          chartBuckets[monthKey].pemasukan += amt;
         } else {
-          chartBuckets[key].pengeluaran += amt;
+          chartBuckets[monthKey].pengeluaran += amt;
         }
       }
     }

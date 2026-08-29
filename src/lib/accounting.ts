@@ -1,5 +1,6 @@
 import prisma from './prisma';
 import { AccountCategory } from '@prisma/client';
+import { toNum, normalizeDateRangeWIB } from './formatters';
 
 export interface AccountSummaryItem {
   id: string;
@@ -143,16 +144,10 @@ export interface EquityStatementResult {
 }
 
 /**
- * Helper untuk normalisasi tanggal awal & akhir periode
+ * Helper untuk normalisasi tanggal awal & akhir periode dengan memperhitungkan zona waktu Indonesia (WIB)
  */
 function normalizeDateRange(startDate: Date | string, endDate: Date | string) {
-  const start = new Date(startDate);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(endDate);
-  end.setHours(23, 59, 59, 999);
-
-  return { start, end };
+  return normalizeDateRangeWIB(startDate, endDate);
 }
 
 /**
@@ -590,10 +585,11 @@ export async function getCashFlowSummary(
   startDateInput: Date | string,
   endDateInput: Date | string
 ): Promise<CashFlowResult> {
-  const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
+  const { start: startDate, end: endDate, startStr, endStr } = normalizeDateRange(startDateInput, endDateInput);
 
-  // 1. Jalankan HANYA 2 Query Ringan secara paralel (Saldo Kas Awal + Seluruh Transaksi Periode)
-  const [openingStats, currentTransactions] = await Promise.all([
+  // Jalankan query agregasi paralel langsung di tingkat database
+  const [openingStats, assignedAggregates, unassignedAggregates, allAccounts] = await Promise.all([
+    // 1. Saldo kas awal sebelum startDate
     prisma.transaction.groupBy({
       by: ['type'],
       where: {
@@ -601,32 +597,40 @@ export async function getCashFlowSummary(
       },
       _sum: { amount: true },
     }),
-    prisma.transaction.findMany({
+    // 2. Agregasi transaksi dengan accountId dalam periode
+    prisma.transaction.groupBy({
+      by: ['accountId', 'type'],
       where: {
         date: { gte: startDate, lte: endDate },
+        accountId: { not: null },
       },
-      select: {
-        id: true,
-        amount: true,
-        type: true,
-        date: true,
-        category: true,
-        account: {
-          select: { code: true, name: true, category: true },
-        },
+      _sum: { amount: true },
+    }),
+    // 3. Agregasi transaksi legacy tanpa accountId dalam periode
+    prisma.transaction.groupBy({
+      by: ['category', 'type'],
+      where: {
+        date: { gte: startDate, lte: endDate },
+        accountId: null,
       },
-      orderBy: { date: 'asc' },
+      _sum: { amount: true },
+    }),
+    // 4. Master akun untuk resolusi metadata pos
+    prisma.account.findMany({
+      select: { id: true, code: true, name: true, category: true },
     }),
   ]);
 
   let priorIncomeSum = 0;
   let priorExpenseSum = 0;
   for (const item of openingStats) {
-    const sum = Number(item._sum.amount || 0);
+    const sum = toNum(item._sum.amount);
     if (item.type === 'PEMASUKAN') priorIncomeSum += sum;
     if (item.type === 'PENGELUARAN') priorExpenseSum += sum;
   }
   const openingCashBalance = priorIncomeSum - priorExpenseSum;
+
+  const accountMap = new Map(allAccounts.map((a) => [a.id, a]));
 
   const opInflows: Record<string, CashFlowActivityItem> = {};
   const opOutflows: Record<string, CashFlowActivityItem> = {};
@@ -640,13 +644,16 @@ export async function getCashFlowSummary(
   const outflowMap: Record<string, number> = {};
   let totalCashOutflow = 0;
 
-  for (const trx of currentTransactions) {
-    const amt = Number(trx.amount || 0);
-    const code = trx.account?.code || (trx.type === 'PEMASUKAN' ? '4001' : '5001');
-    const name = trx.account?.name || trx.category || 'Operasional Usaha';
-    const cat = trx.account?.category;
+  // 1. Proses transaksi yang memiliki accountId
+  for (const item of assignedAggregates) {
+    if (!item.accountId) continue;
+    const acc = accountMap.get(item.accountId);
+    const amt = toNum(item._sum.amount);
+    const code = acc?.code || (item.type === 'PEMASUKAN' ? '4001' : '5001');
+    const name = acc?.name || (item.type === 'PEMASUKAN' ? 'Pendapatan Usaha' : 'Beban Operasional');
+    const cat = acc?.category;
 
-    if (trx.type === 'PEMASUKAN') {
+    if (item.type === 'PEMASUKAN') {
       inflowMap[name] = (inflowMap[name] || 0) + amt;
       totalCashInflow += amt;
 
@@ -690,6 +697,68 @@ export async function getCashFlowSummary(
     }
   }
 
+  // 2. Proses transaksi unassigned / legacy
+  for (const item of unassignedAggregates) {
+    const amt = toNum(item._sum.amount);
+    const catLower = (item.category || '').toLowerCase().trim();
+
+    const matched = allAccounts.find((a) => {
+      const accLower = a.name.toLowerCase();
+      return (
+        accLower === catLower ||
+        accLower.includes(catLower) ||
+        catLower.includes(accLower) ||
+        (catLower.includes('catering') && (a.code === '4001' || a.code === '401')) ||
+        (catLower.includes('bahan baku') && (a.code === '5001' || a.code === '501')) ||
+        (catLower.includes('operasional') && (a.code === '5007' || a.code === '5006'))
+      );
+    });
+
+    const code = matched?.code || (item.type === 'PEMASUKAN' ? '4001' : '5006');
+    const name = matched?.name || item.category || (item.type === 'PEMASUKAN' ? 'Pendapatan Lain-lain' : 'Beban Operasional Lain');
+    const cat = matched?.category;
+
+    if (item.type === 'PEMASUKAN') {
+      inflowMap[name] = (inflowMap[name] || 0) + amt;
+      totalCashInflow += amt;
+
+      const isFinancing =
+        cat === AccountCategory.MODAL ||
+        code.startsWith('3') ||
+        cat === AccountCategory.KEWAJIBAN ||
+        code.startsWith('2') ||
+        name.toLowerCase().includes('pinjaman') ||
+        name.toLowerCase().includes('utang');
+
+      if (isFinancing) {
+        finInflows[code] = { code, name, amount: (finInflows[code]?.amount || 0) + amt };
+      } else {
+        opInflows[code] = { code, name, amount: (opInflows[code]?.amount || 0) + amt };
+      }
+    } else {
+      outflowMap[name] = (outflowMap[name] || 0) + amt;
+      totalCashOutflow += amt;
+
+      const isFinancingOutflow =
+        cat === AccountCategory.MODAL ||
+        code.startsWith('3') ||
+        (cat === AccountCategory.KEWAJIBAN && (code === '2002' || code.startsWith('22') || name.toLowerCase().includes('pinjaman')));
+
+      if (isFinancingOutflow) {
+        finOutflows[code] = { code, name, amount: (finOutflows[code]?.amount || 0) + amt };
+      } else if (
+        code.startsWith('12') ||
+        code === '1201' ||
+        name.toLowerCase().includes('peralatan') ||
+        name.toLowerCase().includes('inventaris')
+      ) {
+        invOutflows[code] = { code, name, amount: (invOutflows[code]?.amount || 0) + amt };
+      } else {
+        opOutflows[code] = { code, name, amount: (opOutflows[code]?.amount || 0) + amt };
+      }
+    }
+  }
+
   const opInList = Object.values(opInflows);
   const opOutList = Object.values(opOutflows);
   const totOpIn = opInList.reduce((acc, curr) => acc + curr.amount, 0);
@@ -723,8 +792,8 @@ export async function getCashFlowSummary(
 
   return {
     period: {
-      startDate: startDate.toISOString().split('T')[0],
-      endDate: endDate.toISOString().split('T')[0],
+      startDate: startStr,
+      endDate: endStr,
     },
     operatingActivities: {
       title: 'A. Arus Kas dari Aktivitas Operasi',

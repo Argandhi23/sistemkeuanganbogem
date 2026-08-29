@@ -7,9 +7,9 @@ import { PageHeader } from '@/components/ui/PageHeader';
 interface AuditLogItem {
   id: string;
   action: string;
-  entity: string;
-  entityId?: string | null;
-  details?: string | null;
+  targetType: string;
+  targetId?: string | null;
+  detail?: string | null;
   createdAt: string;
   user?: {
     id: string;
@@ -47,10 +47,11 @@ export default function LogsPage() {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
-      log.action.toLowerCase().includes(q) ||
-      log.entity.toLowerCase().includes(q) ||
-      (log.details && log.details.toLowerCase().includes(q)) ||
-      (log.user?.name && log.user.name.toLowerCase().includes(q))
+      (log.action && log.action.toLowerCase().includes(q)) ||
+      (log.targetType && log.targetType.toLowerCase().includes(q)) ||
+      (log.detail && log.detail.toLowerCase().includes(q)) ||
+      (log.user?.name && log.user.name.toLowerCase().includes(q)) ||
+      (log.user?.email && log.user.email.toLowerCase().includes(q))
     );
   });
 
@@ -66,7 +67,7 @@ export default function LogsPage() {
         <div className="relative w-full max-w-sm">
           <input
             type="text"
-            placeholder="Cari aktivitas, nama petugas, data..."
+            placeholder="Cari aktivitas, nama petugas, rincian data..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full h-8 pl-8 pr-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:border-slate-900 focus:outline-none"
@@ -95,7 +96,7 @@ export default function LogsPage() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
                   <th className="py-3 px-4 w-36">Waktu</th>
-                  <th className="py-3 px-4 w-32">Aksi</th>
+                  <th className="py-3 px-4 w-36">Aksi</th>
                   <th className="py-3 px-4 w-28">Entitas</th>
                   <th className="py-3 px-4">Rincian Perubahan</th>
                   <th className="py-3 px-4 w-36">Pengguna</th>
@@ -112,11 +113,12 @@ export default function LogsPage() {
                   }).format(new Date(log.createdAt));
 
                   let actionColor = 'bg-slate-100 text-slate-700 border-slate-200';
-                  if (log.action === 'CREATE') {
+                  const act = (log.action || '').toUpperCase();
+                  if (act.startsWith('CREATE')) {
                     actionColor = 'bg-emerald-50 text-emerald-800 border-emerald-200';
-                  } else if (log.action === 'UPDATE') {
+                  } else if (act.startsWith('UPDATE')) {
                     actionColor = 'bg-blue-50 text-blue-800 border-blue-200';
-                  } else if (log.action === 'DELETE') {
+                  } else if (act.startsWith('DELETE')) {
                     actionColor = 'bg-rose-50 text-rose-800 border-rose-200';
                   }
 
@@ -126,24 +128,24 @@ export default function LogsPage() {
                         {dateStr}
                       </td>
                       <td className="py-2.5 px-4 whitespace-nowrap">
-                        <span className={`inline-block px-1.5 py-0.2 rounded text-[10px] font-semibold border ${actionColor}`}>
-                          {log.action}
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${actionColor}`}>
+                          {log.action.replace(/_/g, ' ')}
                         </span>
                       </td>
                       <td className="py-2.5 px-4 font-semibold text-slate-900 whitespace-nowrap">
-                        {log.entity}
+                        {log.targetType}
                       </td>
-                      <td className="py-2.5 px-4 text-slate-600 font-mono text-[11px] max-w-xs truncate">
-                        {log.details || '-'}
+                      <td className="py-2.5 px-4 text-slate-600 font-mono text-[11px] max-w-sm truncate" title={log.detail || '-'}>
+                        {log.detail || '-'}
                       </td>
                       <td className="py-2.5 px-4 whitespace-nowrap text-slate-900 font-medium">
                         <div className="flex items-center gap-1">
                           {log.user?.role === 'ADMIN' ? (
-                            <Shield className="w-3 h-3 text-amber-600" />
+                            <Shield className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
                           ) : (
-                            <User className="w-3 h-3 text-slate-400" />
+                            <User className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
                           )}
-                          <span>{log.user?.name || 'Sistem'}</span>
+                          <span className="truncate">{log.user?.name || 'Sistem'}</span>
                         </div>
                       </td>
                     </tr>

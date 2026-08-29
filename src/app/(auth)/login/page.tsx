@@ -143,30 +143,32 @@ export default function LoginPage() {
             </div>
           </form>
 
-          {/* Quick login helper */}
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-              Akun Cepat (Demo):
-            </p>
-            <div className="grid grid-cols-2 gap-1.5 text-xs">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('admin@bogem.desa.id', 'admin123')}
-                className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
-              >
-                <div className="font-semibold text-slate-900 text-[11px]">👑 Admin</div>
-                <div className="text-[10px] text-slate-500 truncate">admin@bogem.desa.id</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('petugas@bogem.desa.id', 'petugas123')}
-                className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
-              >
-                <div className="font-semibold text-slate-900 text-[11px]">👤 Petugas</div>
-                <div className="text-[10px] text-slate-500 truncate">petugas@bogem.desa.id</div>
-              </button>
+          {/* Quick login helper (hanya tampil pada mode development/testing lokal) */}
+          {process.env.NODE_ENV !== 'production' && (
+            <div className="mt-6 pt-4 border-t border-slate-100 text-center">
+              <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider mb-2">
+                ⚡ Akun Demo (Dev Mode Only):
+              </p>
+              <div className="grid grid-cols-2 gap-1.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('admin@bogem.desa.id', 'admin123')}
+                  className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
+                >
+                  <div className="font-semibold text-slate-900 text-[11px]">👑 Admin</div>
+                  <div className="text-[10px] text-slate-500 truncate">admin@bogem.desa.id</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('petugas@bogem.desa.id', 'petugas123')}
+                  className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
+                >
+                  <div className="font-semibold text-slate-900 text-[11px]">👤 Petugas</div>
+                  <div className="text-[10px] text-slate-500 truncate">petugas@bogem.desa.id</div>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

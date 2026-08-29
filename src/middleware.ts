@@ -6,14 +6,27 @@ export default withAuth(
     const token = req.nextauth.token;
     const { pathname } = req.nextUrl;
 
-    // Proteksi khusus rute Admin
-    const isAdminRoute =
+    // Proteksi khusus rute Admin (Halaman & API)
+    const isAdminPageRoute =
       pathname.startsWith('/users') ||
       pathname.startsWith('/logs') ||
       pathname.startsWith('/accounts');
 
-    if (isAdminRoute && token?.role !== 'ADMIN') {
-      return NextResponse.redirect(new URL('/', req.url));
+    const isAdminApiRoute =
+      pathname.startsWith('/api/users') ||
+      pathname.startsWith('/api/logs') ||
+      (pathname.startsWith('/api/accounts') && req.method !== 'GET');
+
+    if (token?.role !== 'ADMIN') {
+      if (isAdminApiRoute) {
+        return NextResponse.json(
+          { error: 'Akses ditolak: Memerlukan hak akses Administrator' },
+          { status: 403 }
+        );
+      }
+      if (isAdminPageRoute) {
+        return NextResponse.redirect(new URL('/', req.url));
+      }
     }
 
     return NextResponse.next();
