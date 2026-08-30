@@ -150,7 +150,69 @@ async function runStandardCOATest() {
     }
     console.log('✅ PASS: Laporan Perubahan Modal mencatat bagi hasil PADes dengan tepat.');
 
-    console.log('\n--- 4. TEST INTEGRITAS NERACA KESELURUHAN (BALANCE CHECK) ---');
+    console.log('\n--- 4. TEST PERSEDIAAN (1004) & PERLENGKAPAN (1005): Belanja Stok Gudang ---');
+    const accPersediaan = accountMap.get('1004')!;
+    const accPerlengkapan = accountMap.get('1005')!;
+
+    const trxPersediaan = await prisma.transaction.create({
+      data: {
+        type: TransactionType.PENGELUARAN,
+        category: accPersediaan.name,
+        accountId: accPersediaan.id,
+        description: '[TEST] Pembelian Stok Minyak Goreng & Bumbu untuk Gudang',
+        amount: 500000,
+        date: testDate,
+        createdById: testUser.id,
+        syncedToSheet: true,
+      },
+    });
+
+    const trxPerlengkapan = await prisma.transaction.create({
+      data: {
+        type: TransactionType.PENGELUARAN,
+        category: accPerlengkapan.name,
+        accountId: accPerlengkapan.id,
+        description: '[TEST] Pembelian Stok Kardus Kemasan 500 pcs',
+        amount: 250000,
+        date: testDate,
+        createdById: testUser.id,
+        syncedToSheet: true,
+      },
+    });
+
+    // Verifikasi: Persediaan & Perlengkapan TIDAK BOLEH masuk Laba Rugi sebagai Beban Langsung
+    const incomeAfterInventory = await getIncomeStatement(startDate, endDate);
+    const hasInventoryInIncome = incomeAfterInventory.operatingExpenses.accounts.some(
+      (a) => a.code === '1004' || a.code === '1005'
+    );
+    if (hasInventoryInIncome) {
+      throw new Error('❌ GAGAL: Akun Persediaan/Perlengkapan tidak boleh masuk ke Laporan Laba Rugi!');
+    }
+    console.log('✅ PASS: Laba Rugi steril dari belanja stok persediaan dan perlengkapan.');
+
+    // Verifikasi Buku Besar Persediaan (1004): Harus dicatat sebagai DEBET
+    const ledgerPersediaan = await getGeneralLedger(accPersediaan.id, startDate, endDate);
+    console.log(`- Buku Besar 1004: Total Debet = Rp ${ledgerPersediaan.totalDebit.toLocaleString('id-ID')}, Total Kredit = Rp ${ledgerPersediaan.totalCredit.toLocaleString('id-ID')}`);
+    if (ledgerPersediaan.totalDebit < 500000) {
+      throw new Error('❌ GAGAL: Buku Besar Persediaan harus mencatat belanja sebagai DEBET!');
+    }
+    console.log('✅ PASS: Buku Besar Persediaan mencatat mutasi Debet dengan benar.');
+
+    // Verifikasi Neraca
+    const bsAfterInventory = await getBalanceSheet(endDate);
+    const item1004 = bsAfterInventory.assets.currentAssets.items.find((i) => i.code === '1004');
+    const item1005 = bsAfterInventory.assets.currentAssets.items.find((i) => i.code === '1005');
+    console.log(`- Saldo Persediaan (1004) di Neraca: Rp ${(item1004?.amount || 0).toLocaleString('id-ID')}`);
+    console.log(`- Saldo Perlengkapan (1005) di Neraca: Rp ${(item1005?.amount || 0).toLocaleString('id-ID')}`);
+    if (!item1004 || item1004.amount < 500000) {
+      throw new Error('❌ GAGAL: Saldo Persediaan (1004) tidak masuk ke Neraca!');
+    }
+    if (!item1005 || item1005.amount < 250000) {
+      throw new Error('❌ GAGAL: Saldo Perlengkapan (1005) tidak masuk ke Neraca!');
+    }
+    console.log('✅ PASS: Akun Persediaan & Perlengkapan masuk Neraca dengan nominal akurat.');
+
+    console.log('\n--- 5. TEST INTEGRITAS NERACA KESELURUHAN (BALANCE CHECK) ---');
     const finalBalanceSheet = await getBalanceSheet(endDate);
     console.log(`- Total Aset (Aktiva): Rp ${finalBalanceSheet.assets.totalAssets.toLocaleString('id-ID')}`);
     console.log(`- Total Kewajiban & Ekuitas (Pasiva): Rp ${finalBalanceSheet.totalLiabilitiesAndEquity.toLocaleString('id-ID')}`);
@@ -165,7 +227,7 @@ async function runStandardCOATest() {
     // Cleanup Test Data
     await prisma.transaction.deleteMany({
       where: {
-        id: { in: [trxSewa.id, trxBunga.id, trxBeliAlat.id, trxPADes.id] },
+        id: { in: [trxSewa.id, trxBunga.id, trxBeliAlat.id, trxPADes.id, trxPersediaan.id, trxPerlengkapan.id] },
       },
     });
     console.log('\n🧹 Seluruh data transaksi uji coba telah dibersihkan secara aman.');

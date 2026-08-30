@@ -443,15 +443,17 @@ export async function getGeneralLedger(
     for (const item of priorAggregates) {
       const amt = Number(item._sum.amount || 0);
       if (account.category === AccountCategory.PENDAPATAN) {
-        openingBalance += amt;
+        openingBalance += item.type === 'PEMASUKAN' ? amt : -amt;
       } else if (
         account.category === AccountCategory.BEBAN_OPERASIONAL ||
         account.category === AccountCategory.BEBAN_NON_OPERASIONAL
       ) {
-        openingBalance += amt;
+        openingBalance += item.type === 'PENGELUARAN' ? amt : -amt;
       } else if (account.category === AccountCategory.ASET) {
-        openingBalance += item.type === 'PEMASUKAN' ? amt : -amt;
+        // Aset non-kas: belanja aset (PENGELUARAN) = bertambah (+), pelunasan piutang/jual (PEMASUKAN) = berkurang (-)
+        openingBalance += item.type === 'PENGELUARAN' ? amt : -amt;
       } else {
+        // Kewajiban & Modal: PEMASUKAN = bertambah (+), PENGELUARAN = berkurang (-)
         openingBalance += item.type === 'PEMASUKAN' ? amt : -amt;
       }
     }
@@ -511,20 +513,35 @@ export async function getGeneralLedger(
         currentBalance -= amt;
       }
     } else if (account.category === AccountCategory.PENDAPATAN) {
-      // Pendapatan: bertambah di Kredit
-      credit = amt;
-      totalCredit += credit;
-      currentBalance += amt;
+      // Pendapatan: bertambah di Kredit saat Pemasukan
+      if (trx.type === 'PEMASUKAN') {
+        credit = amt;
+        totalCredit += credit;
+        currentBalance += amt;
+      } else {
+        debit = amt;
+        totalDebit += debit;
+        currentBalance -= amt;
+      }
     } else if (
       account.category === AccountCategory.BEBAN_OPERASIONAL ||
       account.category === AccountCategory.BEBAN_NON_OPERASIONAL
     ) {
-      // Beban: bertambah di Debet
-      debit = amt;
-      totalDebit += debit;
-      currentBalance += amt;
+      // Beban: bertambah di Debet saat Pengeluaran
+      if (trx.type === 'PENGELUARAN') {
+        debit = amt;
+        totalDebit += debit;
+        currentBalance += amt;
+      } else {
+        credit = amt;
+        totalCredit += credit;
+        currentBalance -= amt;
+      }
     } else if (account.category === AccountCategory.ASET) {
-      if (trx.type === 'PEMASUKAN') {
+      // Aset Non-Kas (Persediaan, Perlengkapan, Peralatan, Piutang):
+      // Uang Keluar (Beli Aset) = Debet Aset (Bertambah)
+      // Uang Masuk (Pelunasan Piutang / Jual Aset) = Kredit Aset (Berkurang)
+      if (trx.type === 'PENGELUARAN') {
         debit = amt;
         totalDebit += debit;
         currentBalance += amt;
@@ -534,7 +551,7 @@ export async function getGeneralLedger(
         currentBalance -= amt;
       }
     } else {
-      // Modal / Kewajiban: bertambah di Kredit saat Pemasukan
+      // Modal / Kewajiban: bertambah di Kredit saat Pemasukan, berkurang di Debet saat Pengeluaran
       if (trx.type === 'PEMASUKAN') {
         credit = amt;
         totalCredit += credit;
@@ -666,8 +683,17 @@ export async function getCashFlowSummary(
         name.toLowerCase().includes('utang') ||
         name.toLowerCase().includes('hutang');
 
+      const isInvestingInflow =
+        code.startsWith('12') ||
+        code === '1201' ||
+        name.toLowerCase().includes('peralatan') ||
+        name.toLowerCase().includes('mesin') ||
+        name.toLowerCase().includes('inventaris');
+
       if (isFinancing) {
         finInflows[code] = { code, name, amount: (finInflows[code]?.amount || 0) + amt };
+      } else if (isInvestingInflow) {
+        invInflows[code] = { code, name, amount: (invInflows[code]?.amount || 0) + amt };
       } else {
         opInflows[code] = { code, name, amount: (opInflows[code]?.amount || 0) + amt };
       }
@@ -730,8 +756,17 @@ export async function getCashFlowSummary(
         name.toLowerCase().includes('pinjaman') ||
         name.toLowerCase().includes('utang');
 
+      const isInvestingInflow =
+        code.startsWith('12') ||
+        code === '1201' ||
+        name.toLowerCase().includes('peralatan') ||
+        name.toLowerCase().includes('mesin') ||
+        name.toLowerCase().includes('inventaris');
+
       if (isFinancing) {
         finInflows[code] = { code, name, amount: (finInflows[code]?.amount || 0) + amt };
+      } else if (isInvestingInflow) {
+        invInflows[code] = { code, name, amount: (invInflows[code]?.amount || 0) + amt };
       } else {
         opInflows[code] = { code, name, amount: (opInflows[code]?.amount || 0) + amt };
       }
@@ -906,20 +941,40 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
     const code = acc.code;
 
     if (code.startsWith('4') || acc.category === AccountCategory.PENDAPATAN) {
-      totalRevenue += amt;
+      if (item.type === 'PEMASUKAN') totalRevenue += amt;
+      else totalRevenue -= amt;
     } else if (
       code.startsWith('5') ||
       code.startsWith('6') ||
       acc.category === AccountCategory.BEBAN_OPERASIONAL ||
       acc.category === AccountCategory.BEBAN_NON_OPERASIONAL
     ) {
-      totalExpenses += amt;
+      if (item.type === 'PENGELUARAN') totalExpenses += amt;
+      else totalExpenses -= amt;
     }
 
-    if (item.type === 'PEMASUKAN') {
-      accountBalances[code] = (accountBalances[code] || 0) + amt;
+    // Mutasi saldo posisi neraca per kategori akun
+    if (acc.category === AccountCategory.ASET) {
+      // Untuk aset non-kas (1003 Piutang, 1004 Persediaan, 1005 Perlengkapan, 1201 Aset Tetap):
+      // Belanja Aset (PENGELUARAN) = Bertambah (+), Pelunasan Piutang/Jual (PEMASUKAN) = Berkurang (-)
+      if (item.type === 'PENGELUARAN') {
+        accountBalances[code] = (accountBalances[code] || 0) + amt;
+      } else {
+        accountBalances[code] = (accountBalances[code] || 0) - amt;
+      }
+    } else if (acc.category === AccountCategory.KEWAJIBAN || acc.category === AccountCategory.MODAL) {
+      // Kewajiban & Modal: Uang Masuk = Bertambah (+), Uang Keluar = Berkurang (-)
+      if (item.type === 'PEMASUKAN') {
+        accountBalances[code] = (accountBalances[code] || 0) + amt;
+      } else {
+        accountBalances[code] = (accountBalances[code] || 0) - amt;
+      }
     } else {
-      accountBalances[code] = (accountBalances[code] || 0) - amt;
+      if (item.type === 'PEMASUKAN') {
+        accountBalances[code] = (accountBalances[code] || 0) + amt;
+      } else {
+        accountBalances[code] = (accountBalances[code] || 0) - amt;
+      }
     }
   }
 
@@ -949,20 +1004,36 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
     if (matched) {
       const code = matched.code;
       if (code.startsWith('4') || matched.category === AccountCategory.PENDAPATAN) {
-        totalRevenue += amt;
+        if (item.type === 'PEMASUKAN') totalRevenue += amt;
+        else totalRevenue -= amt;
       } else if (
         code.startsWith('5') ||
         code.startsWith('6') ||
         matched.category === AccountCategory.BEBAN_OPERASIONAL ||
         matched.category === AccountCategory.BEBAN_NON_OPERASIONAL
       ) {
-        totalExpenses += amt;
+        if (item.type === 'PENGELUARAN') totalExpenses += amt;
+        else totalExpenses -= amt;
       }
 
-      if (item.type === 'PEMASUKAN') {
-        accountBalances[code] = (accountBalances[code] || 0) + amt;
+      if (matched.category === AccountCategory.ASET) {
+        if (item.type === 'PENGELUARAN') {
+          accountBalances[code] = (accountBalances[code] || 0) + amt;
+        } else {
+          accountBalances[code] = (accountBalances[code] || 0) - amt;
+        }
+      } else if (matched.category === AccountCategory.KEWAJIBAN || matched.category === AccountCategory.MODAL) {
+        if (item.type === 'PEMASUKAN') {
+          accountBalances[code] = (accountBalances[code] || 0) + amt;
+        } else {
+          accountBalances[code] = (accountBalances[code] || 0) - amt;
+        }
       } else {
-        accountBalances[code] = (accountBalances[code] || 0) - amt;
+        if (item.type === 'PEMASUKAN') {
+          accountBalances[code] = (accountBalances[code] || 0) + amt;
+        } else {
+          accountBalances[code] = (accountBalances[code] || 0) - amt;
+        }
       }
     } else {
       if (item.type === 'PEMASUKAN') {
@@ -1139,7 +1210,7 @@ export async function getEquityStatement(
   const netIncome = incomeStatement.netIncome;
 
   // 2. Ambil Transaksi Modal Historis (Sebelum startDate untuk Saldo Awal) & Periode Berjalan
-  const [priorCapitalAgg, periodCapitalTrx] = await Promise.all([
+  const [priorCapitalAgg, periodCapitalTrx, priorIncomeAgg, priorExpenseAgg] = await Promise.all([
     prisma.transaction.groupBy({
       by: ['accountId', 'type'],
       where: {
@@ -1155,13 +1226,54 @@ export async function getEquityStatement(
       },
       include: { account: true },
     }),
+    // Pendapatan historis sebelum startDate
+    prisma.transaction.groupBy({
+      by: ['type'],
+      where: {
+        OR: [
+          { account: { category: AccountCategory.PENDAPATAN } },
+          { account: null, type: 'PEMASUKAN' },
+        ],
+        date: { lt: startDate },
+      },
+      _sum: { amount: true },
+    }),
+    // Beban historis sebelum startDate
+    prisma.transaction.groupBy({
+      by: ['type'],
+      where: {
+        OR: [
+          { account: { category: { in: [AccountCategory.BEBAN_OPERASIONAL, AccountCategory.BEBAN_NON_OPERASIONAL] } } },
+          { account: null, type: 'PENGELUARAN' },
+        ],
+        date: { lt: startDate },
+      },
+      _sum: { amount: true },
+    }),
   ]);
 
-  let beginningCapital = 0;
+  let priorCapitalSum = 0;
   for (const item of priorCapitalAgg) {
     const amt = Number(item._sum.amount || 0);
-    beginningCapital += item.type === 'PEMASUKAN' ? amt : -amt;
+    priorCapitalSum += item.type === 'PEMASUKAN' ? amt : -amt;
   }
+
+  let priorRevenue = 0;
+  for (const item of priorIncomeAgg) {
+    const amt = Number(item._sum.amount || 0);
+    if (item.type === 'PEMASUKAN') priorRevenue += amt;
+    else priorRevenue -= amt;
+  }
+
+  let priorExpense = 0;
+  for (const item of priorExpenseAgg) {
+    const amt = Number(item._sum.amount || 0);
+    if (item.type === 'PENGELUARAN') priorExpense += amt;
+    else priorExpense -= amt;
+  }
+
+  const priorRetainedEarnings = priorRevenue - priorExpense;
+  const beginningCapital = priorCapitalSum + priorRetainedEarnings;
 
   let additionalCapital = 0;
   let withdrawals = 0;
@@ -1189,7 +1301,7 @@ export async function getEquityStatement(
     withdrawals,
     netChange,
     endingCapital,
-    retainedEarnings: beginningCapital,
+    retainedEarnings: priorRetainedEarnings,
   };
 }
 
