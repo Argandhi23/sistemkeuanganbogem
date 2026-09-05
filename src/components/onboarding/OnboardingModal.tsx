@@ -1,7 +1,16 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Wallet, FileSpreadsheet, Sparkles, Check, ArrowRight, ArrowLeft, X } from 'lucide-react';
+import {
+  Wallet,
+  Building2,
+  FileText,
+  Download,
+  Check,
+  ArrowRight,
+  ArrowLeft,
+  X,
+} from 'lucide-react';
 import { BigButton } from '../ui/BigButton';
 
 interface OnboardingModalProps {
@@ -32,28 +41,36 @@ export function OnboardingModal({ forceOpen = false, onClose }: OnboardingModalP
 
   const steps = [
     {
-      title: '1. Catat Uang Masuk & Keluar dengan Mudah',
+      title: 'Selamat Datang di Sistem Keuangan BUMDes Bogem',
+      icon: <Building2 className="w-9 h-9 text-slate-900" />,
+      badge: 'Langkah 1 dari 4',
+      description:
+        'Sistem pembukuan terpadu untuk memantau performa keuangan konsolidasi dan 5 unit usaha desa: Catering Desa, Sewa Molen, WiFi Balai Desa, PPOB Loket, dan Peternakan Sapi.',
+      tip: '💡 Tip: Semua ringkasan omzet, beban, dan laba bersih unit dapat dipantau langsung dari Dashboard.',
+    },
+    {
+      title: '1 Pintu Pencatatan Kas Masuk & Kas Keluar',
       icon: <Wallet className="w-9 h-9 text-emerald-600" />,
-      badge: 'Langkah 1 dari 3',
+      badge: 'Langkah 2 dari 4',
       description:
-        'Cukup tekan tombol hijau "+ Catat Uang Masuk" atau tombol merah "- Catat Uang Keluar". Masukkan nominal rupiah, pilih pos akun, lalu klik "Simpan Data".',
-      tip: '💡 Tip: Angka ribuan otomatis berformat dengan titik (contoh: 50.000).',
+        'Seluruh aktivitas keuangan dicatat melalui 1 formulir terpadu. Cukup pilih jenis Kas Masuk atau Kas Keluar, pilih unit usaha, pilih pos akun, dan isi keterangan secara lengkap.',
+      tip: '💡 Tip: Pos akun otomatis tersaring sesuai unit usaha yang dipilih agar tidak salah pos pembukuan.',
     },
     {
-      title: '2. Laporan & Neraca Keuangan Standar',
-      icon: <Sparkles className="w-9 h-9 text-amber-600" />,
-      badge: 'Langkah 2 dari 3',
+      title: 'Buku Kas Khusus Setiap Unit Usaha',
+      icon: <FileText className="w-9 h-9 text-blue-600" />,
+      badge: 'Langkah 3 dari 4',
       description:
-        'Pantau posisi keuangan unit catering BUMDes melalui Neraca Standar, Laba Rugi, Buku Besar, dan Arus Kas. Anda juga dapat langsung mencetak dokumen laporan resmi dengan kop dan tanda tangan desa.',
-      tip: '💡 Tip: Neraca otomatis memeriksa keseimbangan (Aktiva = Pasiva).',
+        'Setiap unit usaha memiliki halaman buku kas tersendiri di menu samping. Anda dapat melihat mutasi uang masuk, uang keluar, sisa saldo, serta laba operasional unit secara terpisah.',
+      tip: '💡 Tip: Di halaman unit, tombol "+ Kas Masuk" dan "+ Kas Keluar" otomatis memilih unit terkait.',
     },
     {
-      title: '3. Export Laporan Excel (.xlsx) Praktis & Rapi',
-      icon: <FileSpreadsheet className="w-9 h-9 text-emerald-600" />,
-      badge: 'Langkah 3 dari 3',
+      title: 'Laporan Keuangan Otomatis & Export Excel',
+      icon: <Download className="w-9 h-9 text-emerald-600" />,
+      badge: 'Langkah 4 dari 4',
       description:
-        'Semua transaksi kas dan data operasional 5 unit usaha BUMDes Bogem dapat langsung diexport menjadi file Excel (.xlsx) berformat resmi, bersih, dan tertata rapi kapan saja tanpa perlu internet khusus!',
-      tip: '💡 Tip: Tombol Export Excel tersedia di Buku Kas, Laporan Keuangan, dan setiap unit usaha.',
+        'Neraca Keuangan, Laba Rugi, dan Arus Kas dihitung secara otomatis dan selalu seimbang. Data siap diunduh ke format Excel (.xlsx) atau dicetak PDF resmi ber-kop desa kapan saja.',
+      tip: '💡 Tip: Neraca otomatis memvalidasi keseimbangan Total Aset = Total Kewajiban + Ekuitas.',
     },
   ];
 
@@ -70,7 +87,7 @@ export function OnboardingModal({ forceOpen = false, onClose }: OnboardingModalP
       >
         {/* Header Modal */}
         <div className="p-5 pb-3 flex items-center justify-between border-b border-slate-100">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-brand-50 text-brand-800 font-extrabold text-xs uppercase tracking-wider rounded-full border border-brand-200">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-800 font-bold text-xs uppercase tracking-wider rounded-full border border-slate-200">
             {active.badge}
           </div>
           <button
@@ -88,11 +105,11 @@ export function OnboardingModal({ forceOpen = false, onClose }: OnboardingModalP
             {active.icon}
           </div>
 
-          <h3 className="text-lg sm:text-xl font-black text-slate-900 leading-tight">
+          <h3 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight">
             {active.title}
           </h3>
 
-          <p className="mt-2.5 text-xs sm:text-sm text-slate-600 font-medium leading-relaxed">
+          <p className="mt-2.5 text-xs sm:text-sm text-slate-600 font-normal leading-relaxed">
             {active.description}
           </p>
 
@@ -106,7 +123,7 @@ export function OnboardingModal({ forceOpen = false, onClose }: OnboardingModalP
               <div
                 key={idx}
                 className={`h-2 rounded-full transition-all ${
-                  idx === currentStep ? 'w-6 bg-brand-600' : 'w-2 bg-slate-300'
+                  idx === currentStep ? 'w-6 bg-slate-900' : 'w-2 bg-slate-200'
                 }`}
               />
             ))}
@@ -127,7 +144,7 @@ export function OnboardingModal({ forceOpen = false, onClose }: OnboardingModalP
           ) : (
             <button
               onClick={handleFinish}
-              className="text-xs sm:text-sm font-bold text-slate-500 hover:text-slate-800 py-2 px-3"
+              className="text-xs sm:text-sm font-semibold text-slate-500 hover:text-slate-800 py-2 px-3"
             >
               Lewati
             </button>
@@ -149,7 +166,7 @@ export function OnboardingModal({ forceOpen = false, onClose }: OnboardingModalP
               onClick={handleFinish}
               icon={<Check className="w-4 h-4" />}
             >
-              Mulai Pakai Aplikasi
+              Selesai & Mulai
             </BigButton>
           )}
         </div>
