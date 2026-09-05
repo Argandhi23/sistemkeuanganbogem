@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import { getGeneralLedger } from '@/lib/accounting';
+import { BusinessUnit } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,9 +16,10 @@ export async function GET(req: NextRequest) {
     const accountId = searchParams.get('accountId');
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
+    const businessUnitParam = searchParams.get('businessUnit');
 
     if (!accountId) {
-      return NextResponse.json({ error: 'Pilih akun yang ingin ditampilkan' }, { status: 400 });
+      return NextResponse.json({ error: 'Parameter accountId wajib diisi' }, { status: 400 });
     }
 
     const now = new Date();
@@ -33,7 +35,12 @@ export async function GET(req: NextRequest) {
       endDate.setHours(23, 59, 59, 999);
     }
 
-    const report = await getGeneralLedger(accountId, startDate, endDate);
+    const report = await getGeneralLedger(
+      accountId,
+      startDate,
+      endDate,
+      (businessUnitParam as BusinessUnit | 'ALL') || undefined
+    );
     return NextResponse.json({ data: report });
   } catch (error) {
     console.error('Error in buku-besar API:', error);

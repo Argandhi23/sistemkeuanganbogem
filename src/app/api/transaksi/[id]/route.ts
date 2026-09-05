@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { BusinessUnit } from '@prisma/client';
 import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { transactionSchema } from '@/lib/validators';
-import { updateTransactionRow, clearTransactionRow } from '@/lib/googleSheets';
 import { logActivity } from '@/lib/activityLog';
 import { invalidateDashboardStatsCache } from '@/lib/cache';
 
@@ -68,7 +68,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: errorMessage }, { status: 400 });
     }
 
-    const { type, accountId, description, amount, date } = parsed.data;
+    const { type, accountId, description, amount, date, businessUnit, paymentMethod } = parsed.data;
     let { category } = parsed.data;
 
     if (accountId) {
@@ -89,6 +89,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       data: {
         type,
         category,
+        businessUnit: (businessUnit as BusinessUnit) || undefined,
+        paymentMethod: paymentMethod || undefined,
         accountId: accountId || null,
         description,
         amount,
@@ -111,30 +113,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       targetId: updated.id,
       detail: `Edit transaksi ${updated.type}: ${updated.category} - Rp ${Number(amount).toLocaleString('id-ID')}`,
     }).catch((err) => console.warn('Activity log error:', err));
-
-    // 3. Update Google Sheets di latar belakang jika ada sheetRowId
-    if (updated.sheetRowId) {
-      (async () => {
-        try {
-          await updateTransactionRow(
-            updated.sheetRowId,
-            {
-              id: updated.id,
-              type: updated.type,
-              category: updated.category,
-              accountCode: updated.account?.code,
-              accountName: updated.account?.name || updated.category,
-              description: updated.description,
-              amount: Number(updated.amount),
-              date: updated.date,
-            },
-            session.user.name || 'Petugas'
-          );
-        } catch (syncError) {
-          console.warn('Gagal sinkronisasi update ke Google Sheets:', syncError);
-        }
-      })();
-    }
 
     return NextResponse.json({
       message: 'Transaksi berhasil diperbarui',
@@ -188,15 +166,6 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       targetId: existing.id,
       detail: `Hapus transaksi: ${existing.category} - Rp ${Number(existing.amount).toLocaleString('id-ID')} (${existing.description})`,
     }).catch((err) => console.warn('Activity log error:', err));
-
-    // 3. Hapus baris secara fisik dari Google Sheets di latar belakang
-    (async () => {
-      try {
-        await clearTransactionRow(existing.sheetRowId, existing.id);
-      } catch (sheetError) {
-        console.warn('Gagal menghapus baris di Google Sheets:', sheetError);
-      }
-    })();
 
     return NextResponse.json({
       message: 'Data transaksi berhasil dihapus',

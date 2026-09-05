@@ -18,6 +18,7 @@ interface AccountItem {
   code: string;
   name: string;
   category: string;
+  businessUnit: string;
 }
 
 let clientAccountsCache: AccountItem[] | null = null;
@@ -28,36 +29,46 @@ function TambahTransaksiForm() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
   const initialType = searchParams.get('type') === 'PENGELUARAN' ? 'PENGELUARAN' : 'PEMASUKAN';
+  const initialUnit = searchParams.get('unit') || 'CATERING';
 
   const isSubmittingRef = useRef(false);
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>(initialType);
+  const [businessUnit, setBusinessUnit] = useState<string>(initialUnit);
   const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(() => {
-    if (clientAccountsCache && clientAccountsCache.length > 0) {
-      const filtered = clientAccountsCache.filter((a) =>
-        initialType === 'PEMASUKAN'
-          ? a.category === 'PENDAPATAN'
-          : a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL'
-      );
-      return filtered.length > 0 ? filtered[0].id : clientAccountsCache[0].id;
-    }
-    return '';
-  });
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [amount, setAmount] = useState<number>(0);
   const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<'TUNAI' | 'TRANSFER'>('TUNAI');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const getValidAccountsForType = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
-    // Saring keluar akun kas/bank karena kas/bank adalah akun penampung mutasi kas itu sendiri
+  // Saring akun berdasarkan Tipe Kas dan Unit Usaha yang dipilih
+  const getValidAccountsForTypeAndUnit = (
+    trxType: 'PEMASUKAN' | 'PENGELUARAN',
+    unit: string,
+    accList: AccountItem[]
+  ) => {
+    // Saring keluar akun kas/bank penampung
     const nonCash = accList.filter(
       (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
     );
 
+    // Filter unit usaha
+    const unitFiltered = nonCash.filter((a) => {
+      if (unit === 'UMUM') {
+        return a.businessUnit === 'UMUM';
+      }
+      // Akun milik unit itu sendiri
+      if (a.businessUnit === unit) return true;
+      // Akun operasional penunjang umum
+      if (['5005', '5007', '6001', '6002'].includes(a.code)) return true;
+      return false;
+    });
+
     if (trxType === 'PEMASUKAN') {
-      return nonCash.filter(
+      return unitFiltered.filter(
         (a) =>
           a.category === 'PENDAPATAN' ||
           a.category === 'MODAL' ||
@@ -65,13 +76,12 @@ function TambahTransaksiForm() {
           a.code === '1003'
       );
     } else {
-      return nonCash.filter(
+      return unitFiltered.filter(
         (a) =>
           a.category === 'BEBAN_OPERASIONAL' ||
           a.category === 'BEBAN_NON_OPERASIONAL' ||
-          a.code === '1004' || // Persediaan Bahan Baku
-          a.code === '1005' || // Perlengkapan Usaha & Kemasan
-          a.code === '1201' || // Peralatan & Mesin Catering (Aset Tetap)
+          a.code === '1004' ||
+          a.code === '1005' ||
           a.code.startsWith('12') ||
           a.category === 'KEWAJIBAN' ||
           a.category === 'MODAL'
@@ -79,8 +89,32 @@ function TambahTransaksiForm() {
     }
   };
 
+  const getPreferredAccount = (
+    trxType: 'PEMASUKAN' | 'PENGELUARAN',
+    unit: string,
+    validAccounts: AccountItem[]
+  ) => {
+    if (validAccounts.length === 0) return '';
+    if (trxType === 'PEMASUKAN') {
+      const match =
+        validAccounts.find((a) => a.category === 'PENDAPATAN' && a.businessUnit === unit) ||
+        validAccounts.find((a) => a.category === 'PENDAPATAN') ||
+        validAccounts[0];
+      return match.id;
+    } else {
+      const match =
+        validAccounts.find((a) => a.category === 'BEBAN_OPERASIONAL' && a.businessUnit === unit) ||
+        validAccounts.find((a) => a.category === 'BEBAN_OPERASIONAL') ||
+        validAccounts[0];
+      return match.id;
+    }
+  };
+
   useEffect(() => {
     if (clientAccountsCache && clientAccountsCache.length > 0) {
+      const valid = getValidAccountsForTypeAndUnit(type, businessUnit, clientAccountsCache);
+      const pref = getPreferredAccount(type, businessUnit, valid);
+      setSelectedAccountId(pref);
       return;
     }
     fetch('/api/accounts')
@@ -90,32 +124,29 @@ function TambahTransaksiForm() {
         clientAccountsCache = list;
         setAccounts(list);
 
-        const validAccounts = getValidAccountsForType(initialType, list);
-        if (validAccounts.length > 0) {
-          // Default ke Pendapatan Catering (4001) atau Bahan Baku (5001) jika ada
-          const preferred =
-            initialType === 'PEMASUKAN'
-              ? validAccounts.find((a) => a.code === '4001') || validAccounts[0]
-              : validAccounts.find((a) => a.code === '5001') || validAccounts[0];
-          setSelectedAccountId(preferred.id);
-        }
+        const validAccounts = getValidAccountsForTypeAndUnit(initialType, initialUnit, list);
+        const preferredId = getPreferredAccount(initialType, initialUnit, validAccounts);
+        setSelectedAccountId(preferredId);
       })
       .catch((err) => console.error('Error fetching accounts:', err));
-  }, [initialType]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleTypeChange = (newType: 'PEMASUKAN' | 'PENGELUARAN') => {
     setType(newType);
-    const valid = getValidAccountsForType(newType, accounts);
-    if (valid.length > 0) {
-      const preferred =
-        newType === 'PEMASUKAN'
-          ? valid.find((a) => a.code === '4001') || valid[0]
-          : valid.find((a) => a.code === '5001') || valid[0];
-      setSelectedAccountId(preferred.id);
-    }
+    const valid = getValidAccountsForTypeAndUnit(newType, businessUnit, accounts);
+    const pref = getPreferredAccount(newType, businessUnit, valid);
+    setSelectedAccountId(pref);
   };
 
-  const filteredAccounts = getValidAccountsForType(type, accounts);
+  const handleUnitChange = (newUnit: string) => {
+    setBusinessUnit(newUnit);
+    const valid = getValidAccountsForTypeAndUnit(type, newUnit, accounts);
+    const pref = getPreferredAccount(type, newUnit, valid);
+    setSelectedAccountId(pref);
+  };
+
+  const filteredAccounts = getValidAccountsForTypeAndUnit(type, businessUnit, accounts);
 
   const getAccountGroups = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
     if (trxType === 'PEMASUKAN') {
@@ -127,21 +158,21 @@ function TambahTransaksiForm() {
       const piutang = accList.filter((a) => a.code === '1003' || a.category === 'ASET');
 
       return [
-        { label: '🍱 Pendapatan Usaha & Layanan', accounts: usaha },
-        { label: '🏦 Pendapatan Non-Operasional & Bunga Bank', accounts: nonOperasional },
-        { label: '💰 Penerimaan Modal & Pinjaman', accounts: modalDanUtang },
-        { label: '📋 Pelunasan Piutang Usaha', accounts: piutang },
+        { label: 'Pendapatan Usaha & Layanan', accounts: usaha },
+        { label: 'Pendapatan Non-Operasional & Bunga Bank', accounts: nonOperasional },
+        { label: 'Penerimaan Modal & Pinjaman', accounts: modalDanUtang },
+        { label: 'Pelunasan Piutang Usaha', accounts: piutang },
       ].filter((g) => g.accounts.length > 0);
     } else {
-      const hpp = accList.filter((a) =>
-        ['5001', '5002', '5003', '5006', '1004', '1005'].includes(a.code)
+      const biayaLangsung = accList.filter((a) =>
+        ['5001', '5002', '5003', '5004', '5011', '5012', '5021', '5022', '5031', '5041', '5042', '5043', '1004', '1005'].includes(a.code)
       );
-      const operasional = accList.filter(
+      const operasionalUmum = accList.filter(
         (a) =>
-          ['5004', '5005', '5007', '5008', '5009', '5010'].includes(a.code) ||
-          (a.category === 'BEBAN_OPERASIONAL' && !['5001', '5002', '5003', '5006'].includes(a.code))
+          ['5005', '5006', '5007', '5008', '5009', '5010'].includes(a.code) ||
+          (a.category === 'BEBAN_OPERASIONAL' && !biayaLangsung.map((x) => x.id).includes(a.id))
       );
-      const asetTetap = accList.filter((a) => a.code.startsWith('12') || a.code === '1201');
+      const asetTetap = accList.filter((a) => a.code.startsWith('12'));
       const utang = accList.filter((a) => a.category === 'KEWAJIBAN' || a.code.startsWith('2'));
       const pades = accList.filter((a) => a.code === '3004' || a.category === 'MODAL');
       const nonOpex = accList.filter(
@@ -149,12 +180,12 @@ function TambahTransaksiForm() {
       );
 
       return [
-        { label: '🛒 HPP & Belanja Dapur Langsung', accounts: hpp },
-        { label: '🚚 Beban Operasional, Distribusi & Pemasaran', accounts: operasional },
-        { label: '🍳 Belanja Modal / Pengadaan Alat (Aset Tetap)', accounts: asetTetap },
-        { label: '💳 Pembayaran & Angsuran Utang', accounts: utang },
-        { label: '🏛️ Penyaluran Bagi Hasil PADes ke Desa', accounts: pades },
-        { label: '🏦 Beban Administrasi Bank & Non-Operasional', accounts: nonOpex },
+        { label: 'Biaya Pokok & Operasional Langsung', accounts: biayaLangsung },
+        { label: 'Beban Operasional & Distribusi Umum', accounts: operasionalUmum },
+        { label: 'Pengadaan Aset & Peralatan Usaha', accounts: asetTetap },
+        { label: 'Pembayaran Utang & Kewajiban', accounts: utang },
+        { label: 'Penyaluran Bagi Hasil PADes ke Desa', accounts: pades },
+        { label: 'Beban Administrasi Bank & Non-Operasional', accounts: nonOpex },
       ].filter((g) => g.accounts.length > 0);
     }
   };
@@ -190,6 +221,8 @@ function TambahTransaksiForm() {
         body: JSON.stringify({
           type,
           category: categoryName,
+          businessUnit,
+          paymentMethod,
           accountId: selectedAccountId || null,
           description: description.trim(),
           amount,
@@ -218,17 +251,17 @@ function TambahTransaksiForm() {
       <div className="max-w-xl mx-auto space-y-5">
         <PageHeader
           title="Catat Transaksi Kas"
-          description="Pencatatan uang masuk atau keluar unit usaha catering BUMDes Bogem"
+          description="Pencatatan uang masuk dan keluar kas operasional BUMDes Bogem serta unit-unit usaha desa"
           backHref="/transaksi"
           backLabel="Kembali ke Buku Kas"
         />
         <SuccessFeedback
           title={type === 'PEMASUKAN' ? 'Uang Masuk Berhasil Dicatat' : 'Uang Keluar Berhasil Dicatat'}
-          message="Data transaksi telah berhasil disimpan ke database dan disinkronkan ke Google Sheets."
+          message="Data transaksi telah berhasil disimpan ke database dan siap diexport ke Excel kapan saja."
           details={{
             type,
             amount,
-            accountName: selectedAccount?.name || (type === 'PEMASUKAN' ? 'Pendapatan Catering' : 'Beban Operasional'),
+            accountName: selectedAccount?.name || (type === 'PEMASUKAN' ? 'Pendapatan Usaha' : 'Beban Operasional'),
             accountCode: selectedAccount?.code,
             date,
             description,
@@ -250,7 +283,7 @@ function TambahTransaksiForm() {
     <div className="max-w-xl mx-auto space-y-5">
       <PageHeader
         title="Catat Transaksi Kas"
-        description="Pencatatan uang masuk atau keluar unit usaha catering BUMDes Bogem"
+        description="Pencatatan uang masuk dan keluar kas operasional BUMDes Bogem serta unit-unit usaha desa"
         backHref="/transaksi"
         backLabel="Kembali ke Buku Kas"
       />
@@ -297,20 +330,27 @@ function TambahTransaksiForm() {
             </div>
           </div>
 
-          {/* Nominal Uang */}
+          {/* Unit Usaha BUMDes */}
           <div>
-            <label htmlFor="amount" className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Nominal Uang (Rp) <span className="text-rose-500">*</span>
+            <label htmlFor="businessUnit" className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Unit Usaha BUMDes <span className="text-rose-500">*</span>
             </label>
-            <CurrencyInput
-              id="amount"
-              value={amount || ''}
-              onChange={(val) => setAmount(val)}
-              placeholder="0"
-            />
+            <select
+              id="businessUnit"
+              value={businessUnit}
+              onChange={(e) => handleUnitChange(e.target.value)}
+              className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
+            >
+              <option value="CATERING">Catering Desa</option>
+              <option value="RENTAL_MOLEN">Penyewaan Molen</option>
+              <option value="WIFI_DESA">WiFi Balai Desa</option>
+              <option value="PPOB">PPOB Loket Desa</option>
+              <option value="KETAHANAN_PANGAN">Ketahanan Pangan (Peternakan Sapi)</option>
+              <option value="UMUM">Umum / Kas Kantor BUMDes</option>
+            </select>
           </div>
 
-          {/* Akun Akuntansi / Pos */}
+          {/* Akun Akuntansi / Pos (Menyesuaikan Unit) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label htmlFor="account" className="block text-xs font-semibold text-slate-700">
@@ -343,6 +383,36 @@ function TambahTransaksiForm() {
                 </optgroup>
               ))}
             </select>
+          </div>
+
+          {/* Nominal Uang & Metode Pembayaran */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="amount" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Nominal Uang (Rp) <span className="text-rose-500">*</span>
+              </label>
+              <CurrencyInput
+                id="amount"
+                value={amount || ''}
+                onChange={(val) => setAmount(val)}
+                placeholder="0"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="paymentMethod" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Metode Pembayaran
+              </label>
+              <select
+                id="paymentMethod"
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value as 'TUNAI' | 'TRANSFER')}
+                className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
+              >
+                <option value="TUNAI">Kas Tunai</option>
+                <option value="TRANSFER">Transfer Bank / Non-Tunai</option>
+              </select>
+            </div>
           </div>
 
           {/* Tanggal Transaksi */}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import { getEquityStatement } from '@/lib/accounting';
+import { BusinessUnit } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,11 +15,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
+    const businessUnitParam = searchParams.get('businessUnit');
 
     const now = new Date();
     const startDate = startDateParam
       ? new Date(startDateParam)
-      : new Date(now.getFullYear(), now.getMonth(), 1);
+      : new Date(now.getFullYear(), 0, 1);
 
     const endDate = endDateParam
       ? new Date(endDateParam)
@@ -28,7 +30,11 @@ export async function GET(req: NextRequest) {
       endDate.setHours(23, 59, 59, 999);
     }
 
-    const report = await getEquityStatement(startDate, endDate);
+    const report = await getEquityStatement(
+      startDate,
+      endDate,
+      (businessUnitParam as BusinessUnit | 'ALL') || undefined
+    );
     return NextResponse.json({ data: report });
   } catch (error) {
     console.error('Error in perubahan-modal API:', error);

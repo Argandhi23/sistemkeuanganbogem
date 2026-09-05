@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
-import { retryPendingSync, ensureSheetHeaders } from '@/lib/googleSheets';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,19 +10,16 @@ export async function POST() {
       return NextResponse.json({ error: 'Silakan login terlebih dahulu' }, { status: 401 });
     }
 
-    // Pastikan header spreadsheet ada
-    await ensureSheetHeaders();
-
-    // Jalankan retry sync
-    const result = await retryPendingSync();
-
-    return NextResponse.json(result);
+    return NextResponse.json({
+      success: true,
+      message: 'Sistem menggunakan database terpadu. Laporan dapat diunduh via fitur Export Excel.',
+    });
   } catch (error) {
-    console.error('Error during manual sync retry:', error);
+    console.error('Error during sync endpoint call:', error);
     return NextResponse.json(
       {
         success: false,
-        message: 'Gagal melakukan sinkronisasi ulang ke Google Sheets',
+        message: 'Terjadi kesalahan sistem',
       },
       { status: 500 }
     );

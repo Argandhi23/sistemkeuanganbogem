@@ -1,5 +1,5 @@
 import prisma from './prisma';
-import { AccountCategory } from '@prisma/client';
+import { AccountCategory, BusinessUnit } from '@prisma/client';
 import { toNum, normalizeDateRangeWIB } from './formatters';
 
 export interface AccountSummaryItem {
@@ -16,6 +16,7 @@ export interface IncomeStatementResult {
     startDate: string;
     endDate: string;
   };
+  businessUnit?: string;
   revenue: {
     accounts: AccountSummaryItem[];
     total: number;
@@ -55,6 +56,7 @@ export interface GeneralLedgerResult {
     startDate: string;
     endDate: string;
   };
+  businessUnit?: string;
   openingBalance: number;
   entries: GeneralLedgerEntry[];
   totalDebit: number;
@@ -82,6 +84,7 @@ export interface CashFlowResult {
     startDate: string;
     endDate: string;
   };
+  businessUnit?: string;
   operatingActivities: CashFlowActivitySection;
   investingActivities: CashFlowActivitySection;
   financingActivities: CashFlowActivitySection;
@@ -109,6 +112,7 @@ export interface BalanceSheetSection {
 
 export interface BalanceSheetResult {
   asOfDate: string;
+  businessUnit?: string;
   assets: {
     currentAssets: BalanceSheetSection;
     fixedAssets: BalanceSheetSection;
@@ -134,6 +138,7 @@ export interface EquityStatementResult {
     startDate: string;
     endDate: string;
   };
+  businessUnit?: string;
   beginningCapital: number;
   netIncome: number;
   additionalCapital: number;
@@ -155,9 +160,12 @@ function normalizeDateRange(startDate: Date | string, endDate: Date | string) {
  */
 export async function getIncomeStatement(
   startDateInput: Date | string,
-  endDateInput: Date | string
+  endDateInput: Date | string,
+  businessUnit?: BusinessUnit | 'ALL'
 ): Promise<IncomeStatementResult> {
   const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
+
+  const unitFilter = businessUnit && businessUnit !== 'ALL' ? { businessUnit: businessUnit as BusinessUnit } : {};
 
   const [assignedAggregates, unassignedAggregates, allAccounts] = await Promise.all([
     // 1. Agregasi untuk transaksi yang memiliki accountId
@@ -166,6 +174,7 @@ export async function getIncomeStatement(
       where: {
         date: { gte: startDate, lte: endDate },
         accountId: { not: null },
+        ...unitFilter,
       },
       _sum: { amount: true },
       _count: { _all: true },
@@ -177,6 +186,7 @@ export async function getIncomeStatement(
       where: {
         date: { gte: startDate, lte: endDate },
         accountId: null,
+        ...unitFilter,
       },
       _sum: { amount: true },
       _count: { _all: true },
@@ -184,7 +194,12 @@ export async function getIncomeStatement(
 
     // 3. Master akun aktif
     prisma.account.findMany({
-      where: { isActive: true },
+      where: {
+        isActive: true,
+        ...(businessUnit && businessUnit !== 'ALL'
+          ? { OR: [{ businessUnit: businessUnit as BusinessUnit }, { businessUnit: BusinessUnit.UMUM }] }
+          : {}),
+      },
       select: {
         id: true,
         code: true,
@@ -372,6 +387,7 @@ export async function getIncomeStatement(
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0],
     },
+    businessUnit: businessUnit || 'ALL',
     revenue: {
       accounts: revenueAccounts,
       total: totalRevenue,
@@ -395,9 +411,12 @@ export async function getIncomeStatement(
 export async function getGeneralLedger(
   accountId: string,
   startDateInput: Date | string,
-  endDateInput: Date | string
+  endDateInput: Date | string,
+  businessUnit?: BusinessUnit | 'ALL'
 ): Promise<GeneralLedgerResult> {
   const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
+
+  const unitFilter = businessUnit && businessUnit !== 'ALL' ? { businessUnit: businessUnit as BusinessUnit } : {};
 
   const account = await prisma.account.findUniqueOrThrow({
     where: { id: accountId },
@@ -417,6 +436,7 @@ export async function getGeneralLedger(
       by: ['type'],
       where: {
         date: { lt: startDate },
+        ...unitFilter,
       },
       _sum: { amount: true },
     });
@@ -436,6 +456,7 @@ export async function getGeneralLedger(
           { category: { contains: account.name, mode: 'insensitive' } },
         ],
         date: { lt: startDate },
+        ...unitFilter,
       },
       _sum: { amount: true },
     });
@@ -467,6 +488,7 @@ export async function getGeneralLedger(
             gte: startDate,
             lte: endDate,
           },
+          ...unitFilter,
         }
       : {
           OR: [
@@ -477,6 +499,7 @@ export async function getGeneralLedger(
             gte: startDate,
             lte: endDate,
           },
+          ...unitFilter,
         },
     select: {
       id: true,
@@ -587,6 +610,7 @@ export async function getGeneralLedger(
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0],
     },
+    businessUnit: businessUnit || 'ALL',
     openingBalance,
     entries,
     totalDebit,
@@ -600,9 +624,12 @@ export async function getGeneralLedger(
  */
 export async function getCashFlowSummary(
   startDateInput: Date | string,
-  endDateInput: Date | string
+  endDateInput: Date | string,
+  businessUnit?: BusinessUnit | 'ALL'
 ): Promise<CashFlowResult> {
   const { start: startDate, end: endDate, startStr, endStr } = normalizeDateRange(startDateInput, endDateInput);
+
+  const unitFilter = businessUnit && businessUnit !== 'ALL' ? { businessUnit: businessUnit as BusinessUnit } : {};
 
   // Jalankan query agregasi paralel langsung di tingkat database
   const [openingStats, assignedAggregates, unassignedAggregates, allAccounts] = await Promise.all([
@@ -611,6 +638,7 @@ export async function getCashFlowSummary(
       by: ['type'],
       where: {
         date: { lt: startDate },
+        ...unitFilter,
       },
       _sum: { amount: true },
     }),
@@ -620,6 +648,7 @@ export async function getCashFlowSummary(
       where: {
         date: { gte: startDate, lte: endDate },
         accountId: { not: null },
+        ...unitFilter,
       },
       _sum: { amount: true },
     }),
@@ -629,6 +658,7 @@ export async function getCashFlowSummary(
       where: {
         date: { gte: startDate, lte: endDate },
         accountId: null,
+        ...unitFilter,
       },
       _sum: { amount: true },
     }),
@@ -830,6 +860,7 @@ export async function getCashFlowSummary(
       startDate: startStr,
       endDate: endStr,
     },
+    businessUnit: businessUnit || 'ALL',
     operatingActivities: {
       title: 'A. Arus Kas dari Aktivitas Operasi',
       inflows: opInList,
@@ -867,15 +898,21 @@ export async function getCashFlowSummary(
 /**
  * 4. Laporan Posisi Keuangan (Neraca Standar SAK EMKM)
  */
-export async function getBalanceSheet(asOfDateInput: Date | string): Promise<BalanceSheetResult> {
+export async function getBalanceSheet(
+  asOfDateInput: Date | string,
+  businessUnit?: BusinessUnit | 'ALL'
+): Promise<BalanceSheetResult> {
   const cutoffDate = new Date(asOfDateInput);
   cutoffDate.setHours(23, 59, 59, 999);
+
+  const unitFilter = businessUnit && businessUnit !== 'ALL' ? { businessUnit: businessUnit as BusinessUnit } : {};
 
   // 1. Total Seluruh Kas Masuk & Keluar hingga cutoffDate
   const allTimeTotals = await prisma.transaction.groupBy({
     by: ['type'],
     where: {
       date: { lte: cutoffDate },
+      ...unitFilter,
     },
     _sum: { amount: true },
   });
@@ -886,6 +923,7 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
     where: {
       date: { lte: cutoffDate },
       accountId: { not: null },
+      ...unitFilter,
     },
     _sum: { amount: true },
   });
@@ -896,13 +934,29 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
     where: {
       date: { lte: cutoffDate },
       accountId: null,
+      ...unitFilter,
     },
     _sum: { amount: true },
   });
 
+  const referencedAccountIds = assignedAggregates
+    .map((a) => a.accountId)
+    .filter((id): id is string => Boolean(id));
+
   // 4. Master Bagan Akun
   const accounts = await prisma.account.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      ...(businessUnit && businessUnit !== 'ALL'
+        ? {
+            OR: [
+              { businessUnit: businessUnit as BusinessUnit },
+              { businessUnit: BusinessUnit.UMUM },
+              { id: { in: referencedAccountIds } },
+            ],
+          }
+        : {}),
+    },
     select: {
       id: true,
       code: true,
@@ -1155,6 +1209,7 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
 
   return {
     asOfDate: cutoffDate.toISOString().split('T')[0],
+    businessUnit: businessUnit || 'ALL',
     assets: {
       currentAssets: {
         title: 'Aset Lancar',
@@ -1201,12 +1256,15 @@ export async function getBalanceSheet(asOfDateInput: Date | string): Promise<Bal
  */
 export async function getEquityStatement(
   startDateInput: Date | string,
-  endDateInput: Date | string
+  endDateInput: Date | string,
+  businessUnit?: BusinessUnit | 'ALL'
 ): Promise<EquityStatementResult> {
   const { start: startDate, end: endDate } = normalizeDateRange(startDateInput, endDateInput);
 
+  const unitFilter = businessUnit && businessUnit !== 'ALL' ? { businessUnit: businessUnit as BusinessUnit } : {};
+
   // 1. Ambil Laba Rugi Periode Berjalan
-  const incomeStatement = await getIncomeStatement(startDate, endDate);
+  const incomeStatement = await getIncomeStatement(startDate, endDate, businessUnit);
   const netIncome = incomeStatement.netIncome;
 
   // 2. Ambil Transaksi Modal Historis (Sebelum startDate untuk Saldo Awal) & Periode Berjalan
@@ -1216,6 +1274,7 @@ export async function getEquityStatement(
       where: {
         account: { category: AccountCategory.MODAL },
         date: { lt: startDate },
+        ...unitFilter,
       },
       _sum: { amount: true },
     }),
@@ -1223,6 +1282,7 @@ export async function getEquityStatement(
       where: {
         account: { category: AccountCategory.MODAL },
         date: { gte: startDate, lte: endDate },
+        ...unitFilter,
       },
       include: { account: true },
     }),
@@ -1235,6 +1295,7 @@ export async function getEquityStatement(
           { account: null, type: 'PEMASUKAN' },
         ],
         date: { lt: startDate },
+        ...unitFilter,
       },
       _sum: { amount: true },
     }),
@@ -1247,6 +1308,7 @@ export async function getEquityStatement(
           { account: null, type: 'PENGELUARAN' },
         ],
         date: { lt: startDate },
+        ...unitFilter,
       },
       _sum: { amount: true },
     }),
@@ -1295,6 +1357,7 @@ export async function getEquityStatement(
       startDate: startDate.toISOString().split('T')[0],
       endDate: endDate.toISOString().split('T')[0],
     },
+    businessUnit: businessUnit || 'ALL',
     beginningCapital,
     netIncome,
     additionalCapital,

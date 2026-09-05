@@ -48,12 +48,12 @@ export function OnboardingModal({ forceOpen = false, onClose }: OnboardingModalP
       tip: '💡 Tip: Neraca otomatis memeriksa keseimbangan (Aktiva = Pasiva).',
     },
     {
-      title: '3. Otomatis Tersimpan ke Google Sheets',
-      icon: <FileSpreadsheet className="w-9 h-9 text-brand-600" />,
+      title: '3. Export Laporan Excel (.xlsx) Praktis & Rapi',
+      icon: <FileSpreadsheet className="w-9 h-9 text-emerald-600" />,
       badge: 'Langkah 3 dari 3',
       description:
-        'Semua transaksi dan pesanan yang Anda simpan otomatis terkirim ke Google Sheets BUMDes Bogem secara realtime. Tidak perlu lagi copy-paste atau download file excel secara manual!',
-      tip: '💡 Tip: Google Sheets dapat dibuka oleh pengurus & kepala desa kapan saja.',
+        'Semua transaksi kas dan data operasional 5 unit usaha BUMDes Bogem dapat langsung diexport menjadi file Excel (.xlsx) berformat resmi, bersih, dan tertata rapi kapan saja tanpa perlu internet khusus!',
+      tip: '💡 Tip: Tombol Export Excel tersedia di Buku Kas, Laporan Keuangan, dan setiap unit usaha.',
     },
   ];
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import { getIncomeStatement } from '@/lib/accounting';
+import { BusinessUnit } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const startDateParam = searchParams.get('startDate');
     const endDateParam = searchParams.get('endDate');
+    const businessUnitParam = searchParams.get('businessUnit');
 
     const now = new Date();
     const startDate = startDateParam
@@ -28,7 +30,11 @@ export async function GET(req: NextRequest) {
       endDate.setHours(23, 59, 59, 999);
     }
 
-    const report = await getIncomeStatement(startDate, endDate);
+    const report = await getIncomeStatement(
+      startDate,
+      endDate,
+      (businessUnitParam as BusinessUnit | 'ALL') || undefined
+    );
     return NextResponse.json({ data: report });
   } catch (error) {
     console.error('Error in laba-rugi API:', error);

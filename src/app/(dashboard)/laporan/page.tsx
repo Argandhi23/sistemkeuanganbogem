@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import {
   Printer,
-  Calendar,
-  FileSpreadsheet,
+  Download,
   TrendingUp,
   BookOpen,
   DollarSign,
@@ -42,6 +41,7 @@ export default function LaporanPage() {
   const [periodType, setPeriodType] = useState<'month' | 'year' | 'all'>('month');
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [selectedUnit, setSelectedUnit] = useState<string>('ALL');
 
   // Master Accounts for General Ledger
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
@@ -54,11 +54,6 @@ export default function LaporanPage() {
   const [generalLedger, setGeneralLedger] = useState<GeneralLedgerResult | null>(null);
   const [cashFlow, setCashFlow] = useState<CashFlowResult | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Sheets Sync State
-  const isSyncingRef = useRef(false);
-  const [isSyncingSheet, setIsSyncingSheet] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   const getDateRange = useCallback(() => {
     if (periodType === 'all') {
@@ -103,21 +98,22 @@ export default function LaporanPage() {
     try {
       setIsLoading(true);
       const { start, end } = getDateRange();
+      const unitParam = selectedUnit !== 'ALL' ? `&businessUnit=${selectedUnit}` : '';
 
       if (activeTab === 'neraca') {
-        const res = await fetch(`/api/laporan/neraca?asOfDate=${end}`);
+        const res = await fetch(`/api/laporan/neraca?asOfDate=${end}${unitParam}`);
         if (res.ok) {
           const json = await res.json();
           setBalanceSheet(json.data);
         }
       } else if (activeTab === 'laba-rugi') {
-        const res = await fetch(`/api/laporan/laba-rugi?startDate=${start}&endDate=${end}`);
+        const res = await fetch(`/api/laporan/laba-rugi?startDate=${start}&endDate=${end}${unitParam}`);
         if (res.ok) {
           const json = await res.json();
           setIncomeStatement(json.data);
         }
       } else if (activeTab === 'perubahan-modal') {
-        const res = await fetch(`/api/laporan/perubahan-modal?startDate=${start}&endDate=${end}`);
+        const res = await fetch(`/api/laporan/perubahan-modal?startDate=${start}&endDate=${end}${unitParam}`);
         if (res.ok) {
           const json = await res.json();
           setEquityStatement(json.data);
@@ -125,7 +121,7 @@ export default function LaporanPage() {
       } else if (activeTab === 'buku-besar') {
         if (selectedAccountId) {
           const res = await fetch(
-            `/api/laporan/buku-besar?accountId=${selectedAccountId}&startDate=${start}&endDate=${end}`
+            `/api/laporan/buku-besar?accountId=${selectedAccountId}&startDate=${start}&endDate=${end}${unitParam}`
           );
           if (res.ok) {
             const json = await res.json();
@@ -133,7 +129,7 @@ export default function LaporanPage() {
           }
         }
       } else if (activeTab === 'arus-kas') {
-        const res = await fetch(`/api/laporan/arus-kas?startDate=${start}&endDate=${end}`);
+        const res = await fetch(`/api/laporan/arus-kas?startDate=${start}&endDate=${end}${unitParam}`);
         if (res.ok) {
           const json = await res.json();
           setCashFlow(json.data);
@@ -144,41 +140,28 @@ export default function LaporanPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeTab, selectedAccountId, getDateRange]);
+  }, [activeTab, selectedAccountId, getDateRange, selectedUnit]);
 
   useEffect(() => {
     fetchReportData();
   }, [fetchReportData]);
 
-  const handleSyncToSheets = async () => {
-    if (isSyncingRef.current || isSyncingSheet) return;
+  const handleExportExcel = () => {
+    let type = 'transaksi';
+    if (activeTab === 'laba-rugi') type = 'laba-rugi';
+    else if (activeTab === 'neraca') type = 'neraca';
 
-    try {
-      isSyncingRef.current = true;
-      setIsSyncingSheet(true);
-      setSyncFeedback(null);
-      const res = await fetch('/api/laporan/sync-sheet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          year: selectedYear,
-          month: periodType === 'month' ? selectedMonth : undefined,
-          periodType,
-        }),
-      });
-      const json = await res.json();
-      if (res.ok) {
-        setSyncFeedback(`✅ ${json.message || 'Seluruh Laporan Keuangan Berhasil Disinkronkan ke Google Sheets!'}`);
-      } else {
-        setSyncFeedback(`❌ ${json.error || 'Gagal sinkronisasi ke Google Sheets'}`);
-      }
-    } catch {
-      setSyncFeedback('❌ Gagal terhubung ke server');
-    } finally {
-      setIsSyncingSheet(false);
-      isSyncingRef.current = false;
-      setTimeout(() => setSyncFeedback(null), 5000);
+    const query = new URLSearchParams({
+      type,
+      year: selectedYear.toString(),
+    });
+    if (periodType === 'month') {
+      query.set('month', (selectedMonth + 1).toString());
     }
+    if (selectedUnit !== 'ALL') {
+      query.set('businessUnit', selectedUnit);
+    }
+    window.location.href = `/api/export/excel?${query.toString()}`;
   };
 
   const handlePrint = () => {
@@ -199,12 +182,10 @@ export default function LaporanPage() {
               <BigButton
                 variant="secondary"
                 size="normal"
-                onClick={handleSyncToSheets}
-                isLoading={isSyncingSheet}
-                loadingText="Mengirim ke Sheets..."
-                icon={<FileSpreadsheet className="w-4 h-4 text-emerald-600" />}
+                onClick={handleExportExcel}
+                icon={<Download className="w-4 h-4 text-emerald-600" />}
               >
-                Sync Semua Laporan ke Sheets
+                Export Excel (.xlsx)
               </BigButton>
               <BigButton
                 variant="primary"
@@ -218,160 +199,185 @@ export default function LaporanPage() {
           }
         />
 
-        {syncFeedback && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl text-xs font-medium animate-in fade-in">
-            {syncFeedback}
-          </div>
-        )}
 
-        {/* Tab Navigasi & Filter Periode */}
-        <div className="bg-white p-3 sm:p-4 rounded-xl border border-slate-200/80 shadow-subtle flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Tab Selector Buttons */}
-          <div className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg overflow-x-auto">
+
+        {/* Toolbar Laporan Keuangan: 2-Tier Modern & Bersih */}
+        <div className="space-y-3">
+          {/* Tier 1: Pilihan Jenis Laporan (Segmented Tabs) */}
+          <div className="bg-white p-1.5 rounded-2xl border border-slate-200/90 shadow-subtle flex items-center gap-1 overflow-x-auto">
             <button
               onClick={() => setActiveTab('neraca')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 activeTab === 'neraca'
-                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <Scale className="w-3.5 h-3.5 text-indigo-600" />
+              <Scale className={`w-3.5 h-3.5 ${activeTab === 'neraca' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>1. Neraca</span>
             </button>
 
             <button
               onClick={() => setActiveTab('laba-rugi')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 activeTab === 'laba-rugi'
-                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+              <TrendingUp className={`w-3.5 h-3.5 ${activeTab === 'laba-rugi' ? 'text-emerald-400' : 'text-slate-400'}`} />
               <span>2. Laba Rugi</span>
             </button>
 
             <button
               onClick={() => setActiveTab('arus-kas')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 activeTab === 'arus-kas'
-                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+              <DollarSign className={`w-3.5 h-3.5 ${activeTab === 'arus-kas' ? 'text-amber-400' : 'text-slate-400'}`} />
               <span>3. Arus Kas</span>
             </button>
 
             <button
               onClick={() => setActiveTab('perubahan-modal')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 activeTab === 'perubahan-modal'
-                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+              <ShieldCheck className={`w-3.5 h-3.5 ${activeTab === 'perubahan-modal' ? 'text-indigo-400' : 'text-slate-400'}`} />
               <span>4. Perubahan Modal</span>
             </button>
 
             <button
               onClick={() => setActiveTab('buku-besar')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 activeTab === 'buku-besar'
-                  ? 'bg-white text-slate-900 shadow-subtle font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+              <BookOpen className={`w-3.5 h-3.5 ${activeTab === 'buku-besar' ? 'text-blue-400' : 'text-slate-400'}`} />
               <span>5. Buku Besar</span>
             </button>
           </div>
 
-          {/* Period Mode & Selector */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setPeriodType('month')}
-                className={`px-2.5 py-1 rounded-md transition-colors ${
-                  periodType === 'month' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Bulanan
-              </button>
-              <button
-                type="button"
-                onClick={() => setPeriodType('year')}
-                className={`px-2.5 py-1 rounded-md transition-colors ${
-                  periodType === 'year' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                1 Tahun
-              </button>
-              <button
-                type="button"
-                onClick={() => setPeriodType('all')}
-                className={`px-2.5 py-1 rounded-md transition-colors ${
-                  periodType === 'all' ? 'bg-white text-slate-900 shadow-xs font-semibold' : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Semua
-              </button>
+          {/* Tier 2: Filter Parameter (Unit Usaha, Akun, & Periode) */}
+          <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200/90 shadow-subtle flex flex-col md:flex-row md:items-center justify-between gap-3">
+            {/* Sisi Kiri: Filter Unit Usaha & Akun */}
+            <div className="flex flex-wrap items-center gap-3 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
+                  Unit Usaha:
+                </span>
+                <select
+                  value={selectedUnit}
+                  onChange={(e) => setSelectedUnit(e.target.value)}
+                  className="h-9 px-3 text-xs font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-900 focus:outline-none cursor-pointer"
+                >
+                  <option value="ALL">Semua Unit (Konsolidasi)</option>
+                  <option value="CATERING">Catering Desa</option>
+                  <option value="RENTAL_MOLEN">Penyewaan Molen</option>
+                  <option value="WIFI_DESA">WiFi Balai Desa</option>
+                  <option value="PPOB">PPOB Loket Desa</option>
+                  <option value="KETAHANAN_PANGAN">Peternakan Sapi</option>
+                  <option value="UMUM">Operasional Kantor / Umum</option>
+                </select>
+              </div>
+
+              {/* Khusus Tab Buku Besar: Dropdown Akun */}
+              {activeTab === 'buku-besar' && (
+                <div className="flex items-center gap-2 flex-1 min-w-[220px]">
+                  <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
+                    Akun:
+                  </span>
+                  <select
+                    value={selectedAccountId}
+                    onChange={(e) => setSelectedAccountId(e.target.value)}
+                    className="w-full h-9 px-3 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-900 focus:outline-none truncate cursor-pointer"
+                  >
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        [{acc.code}] {acc.name} ({acc.category}) {acc.code === '1001' ? '— Kas Utama' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
-
-              {periodType === 'month' && (
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
-                  className="h-8 px-2.5 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none"
+            {/* Sisi Kanan: Periode (Bulanan, 1 Tahun, Semua) */}
+            <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setPeriodType('month')}
+                  className={`px-3 py-1 rounded-lg transition-all ${
+                    periodType === 'month'
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  {MONTHS.map((m, idx) => (
-                    <option key={idx} value={idx}>
-                      {m}
+                  Bulanan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeriodType('year')}
+                  className={`px-3 py-1 rounded-lg transition-all ${
+                    periodType === 'year'
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  1 Tahun
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeriodType('all')}
+                  className={`px-3 py-1 rounded-lg transition-all ${
+                    periodType === 'all'
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Semua
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                {periodType === 'month' && (
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+                    className="h-9 px-3 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-900 focus:outline-none cursor-pointer"
+                  >
+                    {MONTHS.map((m, idx) => (
+                      <option key={idx} value={idx}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+                  className="h-9 px-3 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-900 focus:outline-none cursor-pointer"
+                >
+                  {YEARS.map((y) => (
+                    <option key={y} value={y}>
+                      {y}
                     </option>
                   ))}
                 </select>
-              )}
-
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                className="h-8 px-2.5 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none"
-              >
-                {YEARS.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
+              </div>
             </div>
           </div>
         </div>
-
-        {/* Khusus Tab Buku Besar: Dropdown Pemilih Akun */}
-        {activeTab === 'buku-besar' && (
-          <div className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-subtle flex items-center gap-2.5">
-            <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
-              Akun Buku Besar:
-            </span>
-            <select
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="w-full h-8 px-2.5 text-xs font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:border-slate-900 focus:outline-none"
-            >
-              {accounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  [{acc.code}] {acc.name} ({acc.category}) {acc.code === '1001' ? '— Buku Kas Umum Utama' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       {/* DOKUMEN LAPORAN RESMI (Tampil di Web & Dicetak) */}

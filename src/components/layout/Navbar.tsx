@@ -7,33 +7,11 @@ import { useSession, signOut } from 'next-auth/react';
 import {
   LogOut,
   HelpCircle,
-  RefreshCw,
 } from 'lucide-react';
 
 export function Navbar() {
   const { data: session } = useSession();
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
-
-  const handleManualSync = async () => {
-    try {
-      setIsSyncing(true);
-      setSyncFeedback(null);
-      const res = await fetch('/api/sync/retry', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setSyncFeedback(`✅ ${data.message || 'Sinkronisasi berhasil'}`);
-      } else {
-        setSyncFeedback(`ℹ️ ${data.message || 'Sinkronisasi selesai'}`);
-      }
-    } catch {
-      setSyncFeedback('❌ Gagal terhubung ke server');
-    } finally {
-      setIsSyncing(false);
-      setTimeout(() => setSyncFeedback(null), 4000);
-    }
-  };
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
@@ -77,8 +55,8 @@ export function Navbar() {
                 <span className="text-base font-bold text-slate-900 tracking-tight leading-none">
                   BUMDes Bogem
                 </span>
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Catering
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  Multi-Unit
                 </span>
               </div>
             </div>
@@ -86,16 +64,6 @@ export function Navbar() {
 
           {/* User Status & Action Buttons */}
           <div className="flex items-center gap-2">
-            {/* Tombol Sinkronisasi Google Sheets */}
-            <button
-              onClick={handleManualSync}
-              disabled={isSyncing}
-              title="Sinkronkan data ke Google Sheets"
-              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium text-xs transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isSyncing ? 'Menyinkronkan...' : 'Sinkron Sheets'}</span>
-            </button>
 
             {/* Menu Bantuan */}
             <Link
@@ -135,13 +103,6 @@ export function Navbar() {
             )}
           </div>
         </div>
-
-        {/* Sync Toast Feedback Banner */}
-        {syncFeedback && (
-          <div className="text-center text-xs font-medium text-slate-800 bg-emerald-50 border border-emerald-200 rounded-lg py-1 px-3 mb-2 animate-in fade-in">
-            {syncFeedback}
-          </div>
-        )}
       </div>
     </header>
   );

@@ -27,7 +27,7 @@ interface SuccessFeedbackProps {
 
 export function SuccessFeedback({
   title = 'Transaksi Berhasil Disimpan',
-  message = 'Catatan keuangan telah tercatat di sistem pembukuan dan disinkronkan ke Google Sheets.',
+  message = 'Catatan keuangan telah tercatat rapi di sistem pembukuan BUMDes.',
   details,
   primaryActionText = 'Catat Transaksi Lagi',
   primaryActionHref,
@@ -84,7 +84,7 @@ export function SuccessFeedback({
                   isIncome ? 'text-emerald-700' : 'text-rose-700'
                 }`}
               >
-                {isIncome ? '+' : '-'} Rp {details.amount.toLocaleString('id-ID')}
+                {isIncome ? '+' : '-'} Rp {Number(details?.amount ?? 0).toLocaleString('id-ID')}
               </span>
             </div>
           </div>

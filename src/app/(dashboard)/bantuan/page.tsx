@@ -25,12 +25,12 @@ export default function BantuanPage() {
         'Ketik nominal uang (angka otomatis berformat titik pemisah ribuan, contoh: 100.000).',
         'Pilih pos akun keuangan yang sesuai: [5001] Bahan Baku Makanan (beras, ayam, bumbu), [5002] Perlengkapan & Kemasan (box, plastik, ATK), atau [1201] Peralatan & Mesin Catering (kompor, oven, etalase).',
         'Tentukan tanggal transaksi dan tulis rincian keterangan transaksi.',
-        'Klik "Simpan Transaksi". Data langsung tersimpan aman ke database dan disinkronkan ke Google Sheets.',
+        'Klik "Simpan Transaksi". Data langsung tersimpan aman ke database dan siap diekspor ke Excel kapan saja.',
       ],
     },
     {
       title: '2. Cara Membaca & Memeriksa Neraca Standar Manajemen',
-      icon: <Scale className="w-4 h-4 text-indigo-600" />,
+      icon: <Scale className="w-4 h-4 text-slate-700" />,
       steps: [
         'Buka menu "Laporan Keuangan" lalu pilih tab "1. Neraca Keuangan".',
         'Pilih Bulan dan Tahun posisi neraca yang ingin ditinjau.',
@@ -41,7 +41,7 @@ export default function BantuanPage() {
     },
     {
       title: '3. Cara Mencatat Penambahan Modal & Bagi Hasil PADes',
-      icon: <Wallet className="w-4 h-4 text-purple-600" />,
+      icon: <Wallet className="w-4 h-4 text-slate-700" />,
       steps: [
         'Untuk Penambahan Modal / Investasi Baru: Klik "+ Catat Uang Masuk", masukkan nominal modal yang disuntikkan, dan pilih akun [3001] Modal Usaha / Modal Awal BUMDes.',
         'Tulis keterangan transaksi (contoh: "Penyertaan Modal Tambahan dari APBDes Desa Bogem 2026").',
@@ -51,22 +51,22 @@ export default function BantuanPage() {
     },
     {
       title: '4. Cara Melihat & Mencetak Laporan Lengkap',
-      icon: <Printer className="w-4 h-4 text-blue-600" />,
+      icon: <Printer className="w-4 h-4 text-slate-700" />,
       steps: [
         'Buka menu "Laporan Keuangan" dari navigasi samping atau bawah.',
         'Pilih jenis laporan: (1) Neraca Keuangan, (2) Laba Rugi, (3) Perubahan Modal, (4) Buku Besar per Akun, atau (5) Arus Kas.',
         'Pilih periode pelaporan (bulan & tahun) yang diinginkan.',
-        'Klik tombol "Sync Sheets" jika ingin menyinkronkan ringkasan laporan ke Google Spreadsheet BUMDes.',
+        'Klik tombol "Export Excel (.xlsx)" jika ingin mengunduh laporan keuangan ke spreadsheet.',
         'Klik tombol "Cetak PDF" untuk mencetak dokumen resmi lengkap dengan kop Pemerintah Desa dan tanda tangan pengurus.',
       ],
     },
     {
-      title: '5. Memahami Sinkronisasi Otomatis Google Sheets',
+      title: '5. Cara Mengekspor Data ke File Excel (.xlsx)',
       icon: <FileSpreadsheet className="w-4 h-4 text-emerald-600" />,
       steps: [
-        'Setiap kali Anda menekan Simpan, data otomatis disalin ke Google Sheets secara realtime.',
-        'Jika internet sempat terputus, sistem menyimpan transaksi di antrean lokal.',
-        'Bila muncul tanda "Pending Data", klik tombol "Sinkron Sheets" di navbar atas untuk mengirim ulang.',
+        'Buka menu Buku Kas Transaksi atau halaman Unit Usaha terkait.',
+        'Gunakan filter tanggal atau unit usaha sesuai kebutuhan rekapan.',
+        'Klik tombol "Export Excel (.xlsx)". File spreadsheet resmi berformat tabel rapi langsung tersimpan di komputer Anda.',
       ],
     },
   ];

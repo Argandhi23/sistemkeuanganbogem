@@ -12,6 +12,11 @@ import {
   Users,
   History,
   HelpCircle,
+  UtensilsCrossed,
+  Hammer,
+  Wifi,
+  Smartphone,
+  Sprout,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -22,7 +27,7 @@ export function Sidebar() {
 
   const menuItems = [
     {
-      name: 'Beranda',
+      name: 'Beranda Konsolidasi',
       href: '/',
       icon: LayoutDashboard,
       exact: true,
@@ -36,6 +41,39 @@ export function Sidebar() {
       name: 'Laporan Keuangan',
       href: '/laporan',
       icon: FileText,
+    },
+  ];
+
+  const unitMenuItems = [
+    {
+      name: 'Catering Desa',
+      href: '/units/catering',
+      icon: UtensilsCrossed,
+      color: 'text-amber-500',
+    },
+    {
+      name: 'Penyewaan Molen',
+      href: '/units/molen',
+      icon: Hammer,
+      color: 'text-orange-500',
+    },
+    {
+      name: 'WiFi Balai Desa',
+      href: '/units/wifi',
+      icon: Wifi,
+      color: 'text-blue-500',
+    },
+    {
+      name: 'PPOB Loket Desa',
+      href: '/units/ppob',
+      icon: Smartphone,
+      color: 'text-emerald-500',
+    },
+    {
+      name: 'Ketahanan Pangan (Sapi)',
+      href: '/units/sapi',
+      icon: Sprout,
+      color: 'text-emerald-600',
     },
   ];
 
@@ -59,30 +97,22 @@ export function Sidebar() {
 
   return (
     <aside className="w-64 bg-transparent p-2 flex flex-col justify-between hidden lg:flex no-print">
-      <div className="space-y-6">
-        {/* Quick Action */}
-        <div className="space-y-1.5 pt-1">
+      <div className="space-y-5">
+        {/* Quick Action Catat Transaksi */}
+        <div className="pt-1">
           <Link
-            href="/transaksi/tambah?type=PEMASUKAN"
-            className="w-full h-9 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-xs flex items-center justify-between transition-colors shadow-subtle"
+            href="/transaksi/tambah"
+            className="w-full h-9 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
           >
-            <span>+ Catat Uang Masuk</span>
-            <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded font-semibold">Kas In</span>
-          </Link>
-
-          <Link
-            href="/transaksi/tambah?type=PENGELUARAN"
-            className="w-full h-9 px-3 bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-lg font-medium text-xs flex items-center justify-between transition-colors shadow-subtle"
-          >
-            <span>- Catat Uang Keluar</span>
-            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-semibold">Kas Out</span>
+            <span className="text-emerald-400 font-bold text-sm leading-none">+</span>
+            <span>Catat Transaksi Kas</span>
           </Link>
         </div>
 
         {/* Menu Navigasi Utama */}
         <div>
-          <div className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
-            Menu
+          <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
+            Utama
           </div>
           <nav className="space-y-0.5">
             {menuItems.map((item) => {
@@ -115,10 +145,47 @@ export function Sidebar() {
           </nav>
         </div>
 
+        {/* Menu Unit Usaha BUMDes */}
+        <div>
+          <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5 flex items-center justify-between">
+            <span>Unit Usaha BUMDes</span>
+            <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">
+              5 Unit
+            </span>
+          </div>
+          <nav className="space-y-0.5">
+            {unitMenuItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={clsx(
+                    'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors select-none',
+                    isActive
+                      ? 'bg-slate-900 text-white font-semibold shadow-subtle'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  )}
+                >
+                  <Icon
+                    className={clsx(
+                      'w-4 h-4 flex-shrink-0',
+                      isActive ? 'text-white' : item.color
+                    )}
+                  />
+                  <span>{item.name}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
         {/* Menu Khusus Admin */}
         {isAdmin && (
           <div>
-            <div className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
+            <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
               Administrasi
             </div>
             <nav className="space-y-0.5">

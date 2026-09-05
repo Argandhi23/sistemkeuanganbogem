@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Prisma } from '@prisma/client';
+import { Prisma, BusinessUnit } from '@prisma/client';
 import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { transactionSchema } from '@/lib/validators';
-import { appendTransactionRow } from '@/lib/googleSheets';
 import { logActivity } from '@/lib/activityLog';
 import { invalidateDashboardStatsCache } from '@/lib/cache';
 
@@ -20,6 +19,7 @@ export async function GET(req: NextRequest) {
     const type = searchParams.get('type');
     const category = searchParams.get('category');
     const accountId = searchParams.get('accountId');
+    const businessUnit = searchParams.get('businessUnit');
     const search = searchParams.get('search')?.trim();
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
@@ -36,6 +36,10 @@ export async function GET(req: NextRequest) {
 
     if (type && (type === 'PEMASUKAN' || type === 'PENGELUARAN')) {
       where.type = type;
+    }
+
+    if (businessUnit && businessUnit !== 'ALL') {
+      where.businessUnit = businessUnit as BusinessUnit;
     }
 
     if (accountId) {
@@ -89,6 +93,8 @@ export async function GET(req: NextRequest) {
           id: true,
           type: true,
           category: true,
+          businessUnit: true,
+          paymentMethod: true,
           accountId: true,
           description: true,
           amount: true,
@@ -128,21 +134,18 @@ export async function GET(req: NextRequest) {
       if (item.type === 'PENGELUARAN') totalExpense += sum;
     }
 
-    const totalPages = all ? 1 : Math.ceil(totalCount / limit);
-
     return NextResponse.json({
       data: transactions,
       pagination: {
         total: totalCount,
-        page: all ? 1 : page,
-        limit: all ? totalCount : limit,
-        totalPages,
-        hasNext: all ? false : page < totalPages,
-        hasPrev: all ? false : page > 1,
+        page,
+        limit,
+        totalPages: Math.ceil(totalCount / limit),
       },
       summary: {
         totalIncome,
         totalExpense,
+        balance: totalIncome - totalExpense,
         netBalance: totalIncome - totalExpense,
       },
     });
@@ -170,7 +173,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errorMessage }, { status: 400 });
     }
 
-    const { type, accountId, description, amount, date } = parsed.data;
+    const { type, accountId, description, amount, date, businessUnit, paymentMethod } = parsed.data;
     let { category } = parsed.data;
 
     // Jika accountId ada tapi category belum spesifik, ambil nama akun
@@ -184,7 +187,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Anti-duplicate protection: Cek apakah transaksi identik baru saja dibuat dalam 10 detik terakhir oleh user yang sama
+    // Anti-duplicate protection
     const recentDuplicate = await prisma.transaction.findFirst({
       where: {
         createdById: session.user.id,
@@ -200,6 +203,8 @@ export async function POST(req: NextRequest) {
         id: true,
         type: true,
         category: true,
+        businessUnit: true,
+        paymentMethod: true,
         description: true,
         amount: true,
         date: true,
@@ -233,6 +238,8 @@ export async function POST(req: NextRequest) {
       data: {
         type,
         category,
+        businessUnit: (businessUnit as BusinessUnit) || BusinessUnit.UMUM,
+        paymentMethod: paymentMethod || 'TUNAI',
         accountId: accountId || null,
         description,
         amount,
@@ -244,6 +251,8 @@ export async function POST(req: NextRequest) {
         id: true,
         type: true,
         category: true,
+        businessUnit: true,
+        paymentMethod: true,
         description: true,
         amount: true,
         date: true,
@@ -266,39 +275,8 @@ export async function POST(req: NextRequest) {
       action: 'CREATE_TRANSACTION',
       targetType: 'Transaction',
       targetId: transaction.id,
-      detail: `Tambah ${type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar'}: ${category} - Rp ${Number(amount).toLocaleString('id-ID')} (${description})`,
+      detail: `Tambah ${type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar'}: [${transaction.businessUnit}] ${category} - Rp ${Number(amount).toLocaleString('id-ID')} (${description})`,
     }).catch((err) => console.warn('Activity log error:', err));
-
-    // 3. Sinkronisasi ke Google Sheets di latar belakang (fire-and-forget, tidak memblokir respon ke user)
-    (async () => {
-      try {
-        const sheetResult = await appendTransactionRow(
-          {
-            id: transaction.id,
-            type: transaction.type,
-            category: transaction.category,
-            accountCode: transaction.account?.code,
-            accountName: transaction.account?.name || transaction.category,
-            description: transaction.description,
-            amount: Number(transaction.amount),
-            date: transaction.date,
-          },
-          session.user.name || 'Petugas'
-        );
-
-        if (sheetResult.success) {
-          await prisma.transaction.update({
-            where: { id: transaction.id },
-            data: {
-              syncedToSheet: true,
-              sheetRowId: sheetResult.sheetRowId || null,
-            },
-          });
-        }
-      } catch (syncError) {
-        console.warn('Background sync to Google Sheets failed:', syncError);
-      }
-    })();
 
     return NextResponse.json(
       {

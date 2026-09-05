@@ -14,6 +14,15 @@ enum Role {
   ADMIN
 }
 
+enum BusinessUnit {
+  CATERING
+  RENTAL_MOLEN
+  WIFI_DESA
+  PPOB
+  KETAHANAN_PANGAN
+  UMUM
+}
+
 enum TransactionType {
   PEMASUKAN
   PENGELUARAN
@@ -26,6 +35,68 @@ enum OrderStatus {
   DIBATALKAN
 }
 
+enum PaymentStatus {
+  BELUM_LUNAS
+  DP
+  LUNAS
+}
+
+enum MolenStatus {
+  TERSEDIA
+  DISEWA
+  PERBAIKAN
+}
+
+enum RentalStatus {
+  AKTIF
+  SELESAI
+  DIBATALKAN
+}
+
+enum BillStatus {
+  BELUM_BAYAR
+  LUNAS
+}
+
+enum PpobType {
+  PLN_TOKEN
+  PLN_TAGIHAN
+  PULSA_DATA
+  BPJS
+  PDAM
+  TRANSFER_BANK
+  E_WALLET
+  LAINNYA
+}
+
+enum PpobStatus {
+  SUKSES
+  PENDING
+  GAGAL
+}
+
+enum CattleStatus {
+  PENGGEMUKAN
+  BIBIT
+  INDUK
+  SIAP_JUAL
+  TERJUAL
+  MATI
+}
+
+enum CattleGender {
+  JANTAN
+  BETINA
+}
+
+enum CattleExpenseType {
+  PAKAN
+  VAKSIN_OBAT
+  PERAWATAN_KANDANG
+  UPAH_PEKERJA
+  LAINNYA
+}
+
 enum AccountCategory {
   PENDAPATAN
   BEBAN_OPERASIONAL
@@ -36,17 +107,20 @@ enum AccountCategory {
 }
 
 model User {
-  id           String          @id @default(cuid())
-  name         String
-  email        String          @unique
-  password     String
-  role         Role            @default(USER)
-  isActive     Boolean         @default(true)
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  transactions Transaction[]
-  orders       CateringOrder[]
-  activityLogs ActivityLog[]
+  id               String            @id @default(cuid())
+  name             String
+  email            String            @unique
+  password         String
+  role             Role              @default(USER)
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  transactions     Transaction[]
+  orders           CateringOrder[]
+  activityLogs     ActivityLog[]
+  molenRentals     MolenRental[]
+  ppobTransactions PpobTransaction[]
+  cattleExpenses   CattleExpense[]
 }
 
 model Account {
@@ -54,6 +128,7 @@ model Account {
   code         String          @unique // e.g. "4001", "5001"
   name         String                  // e.g. "Penjualan Catering", "Bahan Baku"
   category     AccountCategory
+  businessUnit BusinessUnit    @default(UMUM)
   isActive     Boolean         @default(true)
   transactions Transaction[]
   createdAt    DateTime        @default(now())
@@ -61,12 +136,15 @@ model Account {
 
   @@index([category])
   @@index([isActive])
+  @@index([businessUnit])
 }
 
 model Transaction {
   id            String          @id @default(cuid())
   type          TransactionType
   category      String          // Kategori ramah awam
+  businessUnit  BusinessUnit    @default(UMUM)
+  paymentMethod String?         @default("TUNAI") // TUNAI, TRANSFER
   accountId     String?
   account       Account?        @relation(fields: [accountId], references: [id])
   description   String
@@ -85,35 +163,205 @@ model Transaction {
   @@index([category])
   @@index([createdById])
   @@index([syncedToSheet])
+  @@index([businessUnit])
+  @@index([businessUnit, date])
   @@index([type, date])
   @@index([accountId, date])
   @@index([createdById, date])
 }
 
 model CateringOrder {
-  id            String      @id @default(cuid())
+  id            String        @id @default(cuid())
   customerName  String
   customerPhone String?
   eventDate     DateTime
   menuDetail    String
   portion       Int
-  totalPrice    Decimal     @db.Decimal(14, 2)
-  status        OrderStatus @default(PENDING)
+  totalPrice    Decimal       @db.Decimal(14, 2)
+  downPayment   Decimal       @default(0) @db.Decimal(14, 2)
+  paymentStatus PaymentStatus @default(BELUM_LUNAS)
+  status        OrderStatus   @default(PENDING)
   notes         String?
   createdById   String
-  createdBy     User        @relation(fields: [createdById], references: [id])
-  syncedToSheet Boolean     @default(false)
+  createdBy     User          @relation(fields: [createdById], references: [id])
+  syncedToSheet Boolean       @default(false)
   sheetRowId    Int?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
   @@index([status])
+  @@index([paymentStatus])
   @@index([eventDate])
   @@index([customerName])
   @@index([createdById])
   @@index([syncedToSheet])
   @@index([createdAt])
   @@index([status, eventDate])
+}
+
+model MolenUnit {
+  id        String        @id @default(cuid())
+  code      String        @unique // misal: MLN-01
+  name      String        // misal: Molen Tiger 500L Honda
+  dailyRate Decimal       @db.Decimal(14, 2)
+  status    MolenStatus   @default(TERSEDIA)
+  condition String?       // Kondisi mesin: Prima, Perlu Oli, dll
+  notes     String?
+  rentals   MolenRental[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([status])
+}
+
+model MolenRental {
+  id            String        @id @default(cuid())
+  rentalNumber  String        @unique // e.g. RNT-YYYYMMDD-XXXX
+  unitId        String
+  unit          MolenUnit     @relation(fields: [unitId], references: [id])
+  renterName    String
+  renterPhone   String
+  renterAddress String?
+  startDate     DateTime
+  endDate       DateTime
+  totalDays     Int
+  dailyRate     Decimal       @db.Decimal(14, 2)
+  totalPrice    Decimal       @db.Decimal(14, 2)
+  deposit       Decimal       @default(0) @db.Decimal(14, 2)
+  paymentStatus PaymentStatus @default(BELUM_LUNAS)
+  rentalStatus  RentalStatus  @default(AKTIF)
+  notes         String?
+  createdById   String
+  createdBy     User          @relation(fields: [createdById], references: [id])
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([rentalStatus])
+  @@index([paymentStatus])
+  @@index([startDate, endDate])
+  @@index([unitId])
+  @@index([createdById])
+}
+
+model WifiPlan {
+  id          String         @id @default(cuid())
+  name        String         // e.g. "Paket Warga Hemat 10 Mbps"
+  speed       String         // e.g. "10 Mbps"
+  price       Decimal        @db.Decimal(14, 2)
+  description String?
+  isActive    Boolean        @default(true)
+  customers   WifiCustomer[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([isActive])
+}
+
+model WifiCustomer {
+  id               String     @id @default(cuid())
+  customerNumber   String     @unique // e.g. WF-001
+  name             String
+  phone            String
+  address          String
+  rtRw             String?    // e.g. "RT 02 / RW 01"
+  planId           String
+  plan             WifiPlan   @relation(fields: [planId], references: [id])
+  isActive         Boolean    @default(true)
+  installationDate DateTime   @default(now())
+  bills            WifiBill[]
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@index([isActive])
+  @@index([planId])
+  @@index([name])
+}
+
+model WifiBill {
+  id         String       @id @default(cuid())
+  billNumber String       @unique // e.g. INV-WF-202609-001
+  customerId String
+  customer   WifiCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  month      Int          // 1-12
+  year       Int          // e.g. 2026
+  amount     Decimal      @db.Decimal(14, 2)
+  dueDate    DateTime
+  paidDate   DateTime?
+  status     BillStatus   @default(BELUM_BAYAR)
+  notes      String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@unique([customerId, month, year])
+  @@index([status])
+  @@index([month, year])
+  @@index([customerId])
+}
+
+model PpobTransaction {
+  id            String     @id @default(cuid())
+  transactionNo String     @unique // e.g. PPOB-YYYYMMDD-XXXX
+  type          PpobType
+  targetNumber  String     // e.g. No meteran PLN, No HP, ID Pelanggan
+  customerName  String?
+  costPrice     Decimal    @db.Decimal(14, 2) // Modal
+  sellingPrice  Decimal    @db.Decimal(14, 2) // Harga Jual
+  adminFee      Decimal    @db.Decimal(14, 2) // Margin = sellingPrice - costPrice
+  status        PpobStatus @default(SUKSES)
+  date          DateTime   @default(now())
+  notes         String?
+  createdById   String
+  createdBy     User       @relation(fields: [createdById], references: [id])
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([type])
+  @@index([status])
+  @@index([date])
+  @@index([createdById])
+}
+
+model Cattle {
+  id            String          @id @default(cuid())
+  tagNumber     String          @unique // e.g. SP-01
+  name          String?
+  breed         String          // Limousin, Simental, PO, dll
+  gender        CattleGender    @default(JANTAN)
+  status        CattleStatus    @default(PENGGEMUKAN)
+  purchaseDate  DateTime
+  purchasePrice Decimal         @db.Decimal(14, 2)
+  initialWeight Decimal         @db.Decimal(8, 2)
+  currentWeight Decimal         @db.Decimal(8, 2)
+  lastWeighedAt DateTime?
+  saleDate      DateTime?
+  salePrice     Decimal?        @db.Decimal(14, 2)
+  buyerName     String?
+  notes         String?
+  expenses      CattleExpense[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([status])
+  @@index([breed])
+}
+
+model CattleExpense {
+  id          String            @id @default(cuid())
+  cattleId    String?
+  cattle      Cattle?           @relation(fields: [cattleId], references: [id], onDelete: SetNull)
+  type        CattleExpenseType
+  description String
+  amount      Decimal           @db.Decimal(14, 2)
+  date        DateTime          @default(now())
+  createdById String
+  createdBy   User              @relation(fields: [createdById], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([type])
+  @@index([date])
+  @@index([cattleId])
+  @@index([createdById])
 }
 
 model ActivityLog {

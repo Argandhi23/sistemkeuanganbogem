@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import {
@@ -14,7 +14,7 @@ import {
   ChevronRight,
   RefreshCw,
   Calendar,
-  FileSpreadsheet,
+  Download,
 } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -24,6 +24,8 @@ interface TransactionItem {
   id: string;
   type: 'PEMASUKAN' | 'PENGELUARAN';
   category: string;
+  businessUnit?: string;
+  paymentMethod?: string;
   description: string;
   amount: number | string;
   date: string;
@@ -53,6 +55,7 @@ interface SummaryMeta {
   totalIncome: number;
   totalExpense: number;
   netBalance: number;
+  balance?: number;
 }
 
 const MONTH_NAMES = [
@@ -61,6 +64,23 @@ const MONTH_NAMES = [
 ];
 
 const YEAR_OPTIONS = ['ALL', '2024', '2025', '2026', '2027'];
+
+const getUnitBadge = (unit?: string) => {
+  switch (unit) {
+    case 'CATERING':
+      return <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800">CATERING</span>;
+    case 'RENTAL_MOLEN':
+      return <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-orange-100 text-orange-800">MOLEN</span>;
+    case 'WIFI_DESA':
+      return <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800">WIFI</span>;
+    case 'PPOB':
+      return <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">PPOB</span>;
+    case 'KETAHANAN_PANGAN':
+      return <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-900">SAPI</span>;
+    default:
+      return <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600">UMUM</span>;
+  }
+};
 
 export default function TransaksiPage() {
   const { data: session } = useSession();
@@ -83,6 +103,7 @@ export default function TransaksiPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [filterType, setFilterType] = useState<'ALL' | 'PEMASUKAN' | 'PENGELUARAN'>('ALL');
+  const [filterUnit, setFilterUnit] = useState<string>('ALL');
   const [selectedYear, setSelectedYear] = useState<string>('ALL');
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -90,8 +111,6 @@ export default function TransaksiPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<TransactionItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isSyncingSheet, setIsSyncingSheet] = useState(false);
-  const isSyncingRef = useRef(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Debounce search input agar tidak memicu query berlebih
@@ -113,6 +132,9 @@ export default function TransaksiPage() {
       if (filterType !== 'ALL') {
         params.append('type', filterType);
       }
+      if (filterUnit !== 'ALL') {
+        params.append('businessUnit', filterUnit);
+      }
       if (selectedYear !== 'ALL') {
         params.append('year', selectedYear);
       }
@@ -131,7 +153,12 @@ export default function TransaksiPage() {
           setPagination(json.pagination);
         }
         if (json.summary) {
-          setSummary(json.summary);
+          setSummary({
+            totalIncome: Number(json.summary.totalIncome ?? 0),
+            totalExpense: Number(json.summary.totalExpense ?? 0),
+            netBalance: Number(json.summary.netBalance ?? json.summary.balance ?? 0),
+            balance: Number(json.summary.balance ?? json.summary.netBalance ?? 0),
+          });
         }
       }
     } catch (err) {
@@ -139,7 +166,7 @@ export default function TransaksiPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [filterType, selectedYear, selectedMonth, debouncedSearch, currentPage]);
+  }, [filterType, filterUnit, selectedYear, selectedMonth, debouncedSearch, currentPage]);
 
   useEffect(() => {
     fetchTransactions();
@@ -160,45 +187,37 @@ export default function TransaksiPage() {
     setCurrentPage(1);
   };
 
-  const handleSyncCompactSheet = async () => {
-    if (isSyncingRef.current || isSyncingSheet) return;
-    try {
-      isSyncingRef.current = true;
-      setIsSyncingSheet(true);
-      setToastMessage(null);
-      const res = await fetch('/api/sync/retry', { method: 'POST' });
-      const json = await res.json();
-      if (res.ok) {
-        setToastMessage(`✅ ${json.message || 'Google Sheets berhasil dirapikan & disinkronkan!'}`);
-        fetchTransactions();
-      } else {
-        setToastMessage(`❌ ${json.message || 'Gagal sinkronisasi Google Sheets'}`);
-      }
-    } catch {
-      setToastMessage('❌ Terjadi kesalahan saat sinkronisasi Google Sheets');
-    } finally {
-      setIsSyncingSheet(false);
-      isSyncingRef.current = false;
-      setTimeout(() => setToastMessage(null), 5000);
-    }
+  const handleExportExcel = () => {
+    const params = new URLSearchParams({ type: 'transaksi' });
+    if (filterUnit !== 'ALL') params.append('businessUnit', filterUnit);
+    if (selectedYear !== 'ALL') params.append('year', selectedYear);
+    if (selectedMonth !== 'ALL') params.append('month', selectedMonth);
+    window.location.href = `/api/export/excel?${params.toString()}`;
   };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    const prevTransactions = [...transactions];
+
+    // Optimistic Delete: Update UI immediately with 0ms visual delay
+    setTransactions((prev) => prev.filter((t) => t.id !== targetId));
+    setDeleteTarget(null);
+    setToastMessage('✅ Data transaksi berhasil dihapus');
+
     try {
       setIsDeleting(true);
-      const res = await fetch(`/api/transaksi/${deleteTarget.id}`, {
+      const res = await fetch(`/api/transaksi/${targetId}`, {
         method: 'DELETE',
       });
-      if (res.ok) {
-        setToastMessage('✅ Data transaksi berhasil dihapus');
-        setDeleteTarget(null);
-        fetchTransactions();
-      } else {
+      if (!res.ok) {
+        // Rollback on failure
+        setTransactions(prevTransactions);
         const err = await res.json();
         setToastMessage(`❌ ${err.error || 'Gagal menghapus data'}`);
       }
     } catch {
+      setTransactions(prevTransactions);
       setToastMessage('❌ Terjadi kesalahan');
     } finally {
       setIsDeleting(false);
@@ -211,18 +230,16 @@ export default function TransaksiPage() {
       {/* Header Halaman */}
       <PageHeader
         title="Buku Kas & Transaksi"
-        description="Catatan seluruh uang masuk dan pengeluaran operasional catering BUMDes Bogem"
+        description="Catatan seluruh uang masuk dan pengeluaran kas operasional seluruh unit usaha BUMDes Bogem"
         action={
           <div className="flex flex-wrap items-center gap-2">
             <BigButton
               variant="secondary"
               size="normal"
-              onClick={handleSyncCompactSheet}
-              isLoading={isSyncingSheet}
-              loadingText="Menyinkronkan..."
-              icon={<FileSpreadsheet className="w-4 h-4 text-emerald-600" />}
+              onClick={handleExportExcel}
+              icon={<Download className="w-4 h-4 text-emerald-600" />}
             >
-              Rapikan & Sync Sheets
+              Export Excel (.xlsx)
             </BigButton>
             <Link href="/transaksi/tambah?type=PEMASUKAN">
               <BigButton
@@ -259,7 +276,7 @@ export default function TransaksiPage() {
             Total Uang Masuk {selectedYear !== 'ALL' ? `(${selectedYear})` : 'Terfilter'}
           </span>
           <div className="text-lg sm:text-xl font-bold text-emerald-700 mt-0.5 tabular-nums">
-            + Rp {summary.totalIncome.toLocaleString('id-ID')}
+            + Rp {(summary?.totalIncome ?? 0).toLocaleString('id-ID')}
           </div>
         </div>
 
@@ -268,7 +285,7 @@ export default function TransaksiPage() {
             Total Uang Keluar {selectedYear !== 'ALL' ? `(${selectedYear})` : 'Terfilter'}
           </span>
           <div className="text-lg sm:text-xl font-bold text-rose-700 mt-0.5 tabular-nums">
-            - Rp {summary.totalExpense.toLocaleString('id-ID')}
+            - Rp {(summary?.totalExpense ?? 0).toLocaleString('id-ID')}
           </div>
         </div>
 
@@ -277,7 +294,7 @@ export default function TransaksiPage() {
             Selisih Kas {selectedYear !== 'ALL' ? `(${selectedYear})` : 'Terfilter'}
           </span>
           <div className="text-lg sm:text-xl font-bold text-slate-900 mt-0.5 tabular-nums">
-            Rp {summary.netBalance.toLocaleString('id-ID')}
+            Rp {(summary?.netBalance ?? summary?.balance ?? 0).toLocaleString('id-ID')}
           </div>
         </div>
       </div>
@@ -354,6 +371,27 @@ export default function TransaksiPage() {
               </select>
             </div>
 
+            {/* Filter Unit Usaha */}
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+              <span className="text-[11px] font-semibold text-slate-600">Unit:</span>
+              <select
+                value={filterUnit}
+                onChange={(e) => {
+                  setFilterUnit(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-bold text-slate-900 bg-transparent focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">Semua Unit</option>
+                <option value="CATERING">Catering</option>
+                <option value="RENTAL_MOLEN">Rental Molen</option>
+                <option value="WIFI_DESA">WiFi Balai Desa</option>
+                <option value="PPOB">PPOB</option>
+                <option value="KETAHANAN_PANGAN">Peternakan Sapi</option>
+                <option value="UMUM">Umum</option>
+              </select>
+            </div>
+
             {/* Form Pencarian Cepat */}
             <div className="relative flex-1 sm:w-64 min-w-[200px]">
               <input
@@ -410,6 +448,7 @@ export default function TransaksiPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-1.5">
+                        {getUnitBadge(trx.businessUnit)}
                         <span
                           className={`inline-block text-[10px] px-1.5 py-0.2 rounded font-medium ${
                             isIncome
@@ -435,7 +474,7 @@ export default function TransaksiPage() {
                         isIncome ? 'text-emerald-700' : 'text-rose-700'
                       }`}
                     >
-                      {isIncome ? '+' : '-'} Rp {Number(trx.amount).toLocaleString('id-ID')}
+                      {isIncome ? '+' : '-'} Rp {Number(trx.amount || 0).toLocaleString('id-ID')}
                     </div>
                   </div>
 
@@ -474,7 +513,7 @@ export default function TransaksiPage() {
                     <th className="py-3 px-4">Kode & Pos Akun Keuangan</th>
                     <th className="py-3 px-4 text-right">Nominal (Rp)</th>
                     <th className="py-3 px-4">Petugas</th>
-                    <th className="py-3 px-4 text-center">Sheets</th>
+                    <th className="py-3 px-4 text-center">Metode</th>
                     <th className="py-3 px-4 text-center">Aksi</th>
                   </tr>
                 </thead>
@@ -494,15 +533,18 @@ export default function TransaksiPage() {
                           {dateFormatted}
                         </td>
                         <td className="py-3 px-4 whitespace-nowrap">
-                          <span
-                            className={`inline-block text-[10px] px-1.5 py-0.2 rounded font-medium ${
-                              isIncome
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : 'bg-rose-50 text-rose-700 border border-rose-200'
-                            }`}
-                          >
-                            {isIncome ? 'Masuk' : 'Keluar'}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            {getUnitBadge(trx.businessUnit)}
+                            <span
+                              className={`inline-block text-[10px] px-1.5 py-0.2 rounded font-medium ${
+                                isIncome
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}
+                            >
+                              {isIncome ? 'Masuk' : 'Keluar'}
+                            </span>
+                          </div>
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-1.5">
@@ -525,22 +567,20 @@ export default function TransaksiPage() {
                               isIncome ? 'text-emerald-700' : 'text-rose-700'
                             }`}
                           >
-                            {isIncome ? '+' : '-'} Rp {Number(trx.amount).toLocaleString('id-ID')}
+                            {isIncome ? '+' : '-'} Rp {Number(trx.amount || 0).toLocaleString('id-ID')}
                           </span>
                         </td>
                         <td className="py-3 px-4 text-slate-600 whitespace-nowrap">
                           {trx.createdBy?.name || 'Petugas'}
                         </td>
                         <td className="py-3 px-4 text-center whitespace-nowrap">
-                          {trx.syncedToSheet ? (
-                            <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-                              Tersinkron
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
-                              Pending
-                            </span>
-                          )}
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
+                            trx.paymentMethod === 'TRANSFER'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-slate-50 text-slate-700 border-slate-200'
+                          }`}>
+                            {trx.paymentMethod || 'TUNAI'}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-center whitespace-nowrap">
                           <div className="flex items-center justify-center gap-1">

@@ -1,10 +1,20 @@
-import { PrismaClient, Role, TransactionType, OrderStatus, AccountCategory } from '@prisma/client';
+import {
+  PrismaClient,
+  Role,
+  TransactionType,
+  OrderStatus,
+  AccountCategory,
+  BusinessUnit,
+  MolenStatus,
+  CattleStatus,
+  CattleGender,
+} from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding initial data & Chart of Accounts for BUMDes Catering Desa Bogem...');
+  console.log('Seeding initial data & Chart of Accounts for BUMDes Desa Bogem (Multi-Unit)...');
 
   const hashedPasswordAdmin = await bcrypt.hash('admin123', 10);
   const hashedPasswordPetugas = await bcrypt.hash('petugas123', 10);
@@ -27,7 +37,7 @@ async function main() {
     where: { email: 'petugas@bogem.desa.id' },
     update: {},
     create: {
-      name: 'Ibu Sri (Pengurus Catering)',
+      name: 'Ibu Sri (Bendahara BUMDes)',
       email: 'petugas@bogem.desa.id',
       password: hashedPasswordPetugas,
       role: Role.USER,
@@ -39,184 +49,169 @@ async function main() {
   console.log(`- Admin: ${admin.email} (Password: admin123)`);
   console.log(`- Petugas: ${user.email} (Password: petugas123)`);
 
-  // 3. Seed Chart of Accounts (COA) 4-Digit Lengkap SAK EMKM BUMDes Bogem
+  // 3. Seed Chart of Accounts (COA) 4-Digit Lengkap SAK EMKM BUMDes Bogem Multi Unit
   const defaultAccounts = [
     // 1xxx - ASET (AKTIVA)
-    // 1.1 Aset Lancar
-    { code: '1001', name: 'Kas Tunai', category: AccountCategory.ASET },
-    { code: '1002', name: 'Bank / Rekening Operasional', category: AccountCategory.ASET },
-    { code: '1003', name: 'Piutang Usaha Catering', category: AccountCategory.ASET },
-    { code: '1004', name: 'Persediaan Bahan Baku & Bumbu Masak', category: AccountCategory.ASET },
-    { code: '1005', name: 'Perlengkapan Usaha & Kemasan', category: AccountCategory.ASET },
-    // 1.2 Aset Tetap
-    { code: '1201', name: 'Peralatan & Mesin Catering', category: AccountCategory.ASET },
-    { code: '1209', name: 'Akumulasi Penyusutan Peralatan', category: AccountCategory.ASET },
+    { code: '1001', name: 'Kas Tunai', category: AccountCategory.ASET, businessUnit: BusinessUnit.UMUM },
+    { code: '1002', name: 'Bank / Rekening Operasional BUMDes', category: AccountCategory.ASET, businessUnit: BusinessUnit.UMUM },
+    { code: '1003', name: 'Piutang Usaha Catering & Sewa', category: AccountCategory.ASET, businessUnit: BusinessUnit.CATERING },
+    { code: '1004', name: 'Persediaan Bahan Baku & Bumbu Masak', category: AccountCategory.ASET, businessUnit: BusinessUnit.CATERING },
+    { code: '1005', name: 'Perlengkapan Usaha & Kemasan', category: AccountCategory.ASET, businessUnit: BusinessUnit.CATERING },
+    { code: '1201', name: 'Aset Peralatan & Mesin Molen', category: AccountCategory.ASET, businessUnit: BusinessUnit.RENTAL_MOLEN },
+    { code: '1202', name: 'Aset Jaringan & Router WiFi Desa', category: AccountCategory.ASET, businessUnit: BusinessUnit.WIFI_DESA },
+    { code: '1203', name: 'Aset Biologis (Ternak Sapi)', category: AccountCategory.ASET, businessUnit: BusinessUnit.KETAHANAN_PANGAN },
+    { code: '1209', name: 'Akumulasi Penyusutan Peralatan', category: AccountCategory.ASET, businessUnit: BusinessUnit.UMUM },
 
     // 2xxx - KEWAJIBAN (UTANG)
-    { code: '2001', name: 'Utang Usaha / Supplier', category: AccountCategory.KEWAJIBAN },
-    { code: '2002', name: 'Utang Pinjaman (Bank / Pihak Ketiga)', category: AccountCategory.KEWAJIBAN },
+    { code: '2001', name: 'Utang Usaha / Supplier', category: AccountCategory.KEWAJIBAN, businessUnit: BusinessUnit.UMUM },
+    { code: '2002', name: 'Utang Pinjaman (Bank / Pihak Ketiga)', category: AccountCategory.KEWAJIBAN, businessUnit: BusinessUnit.UMUM },
 
     // 3xxx - EKUITAS (MODAL)
-    { code: '3001', name: 'Modal Usaha / Modal Awal BUMDes', category: AccountCategory.MODAL },
-    { code: '3002', name: 'Laba Ditahan', category: AccountCategory.MODAL },
-    { code: '3003', name: 'Penyertaan Modal Tambahan Desa / Hibah', category: AccountCategory.MODAL },
-    { code: '3004', name: 'Bagi Hasil PADes ke Kas Desa', category: AccountCategory.MODAL },
+    { code: '3001', name: 'Modal Usaha / Modal Awal BUMDes', category: AccountCategory.MODAL, businessUnit: BusinessUnit.UMUM },
+    { code: '3002', name: 'Laba Ditahan', category: AccountCategory.MODAL, businessUnit: BusinessUnit.UMUM },
+    { code: '3003', name: 'Penyertaan Modal Desa / Ketahanan Pangan', category: AccountCategory.MODAL, businessUnit: BusinessUnit.KETAHANAN_PANGAN },
+    { code: '3004', name: 'Bagi Hasil PADes ke Kas Desa', category: AccountCategory.MODAL, businessUnit: BusinessUnit.UMUM },
 
-    // 4xxx - PENDAPATAN
-    { code: '4001', name: 'Pendapatan Catering (Nasi Box, Prasmanan, Snack)', category: AccountCategory.PENDAPATAN },
-    { code: '4002', name: 'Pendapatan Usaha Lain-lain', category: AccountCategory.PENDAPATAN },
-    { code: '4003', name: 'Pendapatan Sewa Peralatan & Perlengkapan Catering', category: AccountCategory.PENDAPATAN },
-    { code: '4004', name: 'Pendapatan Jasa Pengantaran / Ongkir', category: AccountCategory.PENDAPATAN },
-    { code: '4101', name: 'Pendapatan Bunga Bank & Jasa Giro', category: AccountCategory.PENDAPATAN },
+    // 4xxx - PENDAPATAN (PER UNIT USAHA)
+    // 4.1 Catering
+    { code: '4001', name: 'Pendapatan Catering (Nasi Box, Prasmanan, Snack)', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.CATERING },
+    { code: '4002', name: 'Pendapatan Usaha Lain-lain', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.UMUM },
+    { code: '4003', name: 'Pendapatan Sewa Peralatan Catering', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.CATERING },
+    // 4.2 Rental Molen
+    { code: '4010', name: 'Pendapatan Sewa Mesin Molen', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.RENTAL_MOLEN },
+    // 4.3 WiFi Balai Desa
+    { code: '4020', name: 'Pendapatan Retribusi / Iuran WiFi Balai Desa', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.WIFI_DESA },
+    // 4.4 PPOB Loket Desa
+    { code: '4030', name: 'Pendapatan Margin & Admin Fee PPOB', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.PPOB },
+    // 4.5 Ketahanan Pangan (Peternakan Sapi)
+    { code: '4040', name: 'Pendapatan Penjualan Ternak Sapi', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.KETAHANAN_PANGAN },
+    { code: '4101', name: 'Pendapatan Bunga Bank & Jasa Giro', category: AccountCategory.PENDAPATAN, businessUnit: BusinessUnit.UMUM },
 
-    // 5xxx - BEBAN OPERASIONAL (HPP & BEBAN USAHA)
-    { code: '5001', name: 'Beban Bahan Baku Makanan (Beras, Daging, Bumbu)', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5002', name: 'Beban Perlengkapan & Kemasan (Box, Plastik, Sendok)', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5003', name: 'Beban Upah & Tenaga Kerja Masak (Tukang Masak, Rewang)', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5004', name: 'Beban Pemeliharaan & Servis Peralatan Masak', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5005', name: 'Beban Transportasi, Bensin & Pengantaran', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5006', name: 'Beban Gas Elpiji, Listrik & Air', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5007', name: 'Beban Operasional Lain-lain', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5008', name: 'Beban Pengembalian Dana / Diskon Pelanggan', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5009', name: 'Beban Pemasaran, Spanduk & Promosi', category: AccountCategory.BEBAN_OPERASIONAL },
-    { code: '5010', name: 'Beban Kebersihan, Sampah & Retribusi Lingkungan', category: AccountCategory.BEBAN_OPERASIONAL },
+    // 5xxx - BEBAN OPERASIONAL (PER UNIT USAHA)
+    // 5.1 Catering
+    { code: '5001', name: 'Beban Bahan Baku Catering (Beras, Daging, Bumbu)', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
+    { code: '5002', name: 'Beban Perlengkapan & Kemasan Box Snack', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
+    { code: '5003', name: 'Beban Upah Masak & Tenaga Kerja Catering', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
+    { code: '5004', name: 'Beban Gas Elpiji, Listrik & Air Dapur Catering', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
+    // 5.2 Rental Molen
+    { code: '5011', name: 'Beban Pemeliharaan, Oli & Sparepart Molen', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.RENTAL_MOLEN },
+    { code: '5012', name: 'Beban Bahan Bakar / Solar Mesin Molen', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.RENTAL_MOLEN },
+    // 5.3 WiFi Balai Desa
+    { code: '5021', name: 'Beban Langganan Bandwidth & Upstream ISP', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.WIFI_DESA },
+    { code: '5022', name: 'Beban Pemeliharaan Jaringan & Kabel WiFi', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.WIFI_DESA },
+    // 5.4 PPOB
+    { code: '5031', name: 'Beban Operasional & Kertas Struk PPOB', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.PPOB },
+    // 5.5 Ketahanan Pangan (Ternak Sapi)
+    { code: '5041', name: 'Beban Pakan Konsentrat & Rumput Sapi', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.KETAHANAN_PANGAN },
+    { code: '5042', name: 'Beban Vaksin, Vitamin & Dokter Hewan Sapi', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.KETAHANAN_PANGAN },
+    { code: '5043', name: 'Beban Pemeliharaan Kandang & Upah Peternak', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.KETAHANAN_PANGAN },
 
     // 6xxx - BEBAN NON-OPERASIONAL
-    { code: '6001', name: 'Beban Administrasi Bank & Non-Operasional', category: AccountCategory.BEBAN_NON_OPERASIONAL },
+    { code: '6001', name: 'Beban Administrasi Bank & Non-Operasional', category: AccountCategory.BEBAN_NON_OPERASIONAL, businessUnit: BusinessUnit.UMUM },
   ];
 
   const accountMap: Record<string, string> = {};
   for (const acc of defaultAccounts) {
     const createdAcc = await prisma.account.upsert({
       where: { code: acc.code },
-      update: { name: acc.name, category: acc.category, isActive: true },
+      update: { name: acc.name, category: acc.category, businessUnit: acc.businessUnit, isActive: true },
       create: acc,
     });
     accountMap[acc.code] = createdAcc.id;
   }
-  console.log(`Seeded ${defaultAccounts.length} standard accounts in Chart of Accounts.`);
+  console.log(`Seeded ${defaultAccounts.length} standard accounts across all 5 Business Units.`);
 
-  // 3.5. Bersihkan & Hapus seluruh akun 3-digit lama dari database
-  const old3DigitCodes = [
-    '101', '102', '103', '104', '105',
-    '201',
-    '301', '302',
-    '401', '402',
-    '501', '502', '503', '504', '505', '506'
-  ];
-
-  for (const oldCode of old3DigitCodes) {
-    const newCode = oldCode[0] + '00' + oldCode.slice(1);
-    const newAccId = accountMap[newCode];
-    const oldAcc = await prisma.account.findUnique({ where: { code: oldCode } });
-
-    if (oldAcc && newAccId) {
-      await prisma.transaction.updateMany({
-        where: { accountId: oldAcc.id },
-        data: { accountId: newAccId },
-      });
-    }
-  }
-
-  const deleteResult = await prisma.account.deleteMany({
-    where: { code: { in: old3DigitCodes } },
-  });
-  console.log(`Cleaned up ${deleteResult.count} legacy 3-digit accounts from database.`);
-
-  // 4. Seed Sample Transactions if empty
-  const countTransactions = await prisma.transaction.count();
-  if (countTransactions === 0) {
-    await prisma.transaction.createMany({
+  // 4. Seed Molen Units if empty
+  const countMolen = await prisma.molenUnit.count();
+  if (countMolen === 0) {
+    await prisma.molenUnit.createMany({
       data: [
         {
-          type: TransactionType.PEMASUKAN,
-          category: 'Pendapatan Catering',
-          accountId: accountMap['4001'],
-          description: 'Pembayaran DP Pesanan Prasmanan Pernikahan Bu Rini',
-          amount: 2500000,
-          date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-          createdById: user.id,
-          syncedToSheet: false,
+          code: 'MLN-01',
+          name: 'Molen Beton Tiger 500L (Honda GX200)',
+          dailyRate: 150000,
+          status: MolenStatus.TERSEDIA,
+          condition: 'Kondisi prima, oli baru',
+          notes: 'Ditempatkan di Gudang BUMDes samping balai desa',
         },
         {
-          type: TransactionType.PENGELUARAN,
-          category: 'Beban Bahan Baku Makanan',
-          accountId: accountMap['5001'],
-          description: 'Beli beras 50kg, ayam potong 20kg, dan bumbu dapur di Pasar Bogem',
-          amount: 1200000,
-          date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-          createdById: user.id,
-          syncedToSheet: false,
-        },
-        {
-          type: TransactionType.PENGELUARAN,
-          category: 'Beban Gas Elpiji, Listrik & Air',
-          accountId: accountMap['5005'],
-          description: 'Beli gas elpiji 3kg (4 tabung) dan token listrik dapur catering',
-          amount: 180000,
-          date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-          createdById: user.id,
-          syncedToSheet: false,
-        },
-        {
-          type: TransactionType.PEMASUKAN,
-          category: 'Pendapatan Catering',
-          accountId: accountMap['4001'],
-          description: 'Pelunasan Nasi Box Rapat Desa Bogem (100 Kotak)',
-          amount: 2000000,
-          date: new Date(),
-          createdById: admin.id,
-          syncedToSheet: false,
+          code: 'MLN-02',
+          name: 'Molen Beton Hercules 350L (Mesin Diesel 7PK)',
+          dailyRate: 120000,
+          status: MolenStatus.TERSEDIA,
+          condition: 'Normal siap pakai',
+          notes: 'Cocok untuk proyek cor jalan kampung / rumah warga',
         },
       ],
     });
-    console.log('Sample transactions created.');
+    console.log('Sample Molen units seeded.');
   }
 
-  // 5. Seed Sample Orders if empty
-  const countOrders = await prisma.cateringOrder.count();
-  if (countOrders === 0) {
-    await prisma.cateringOrder.createMany({
+  // 5. Seed WiFi Plans if empty
+  const countWifiPlans = await prisma.wifiPlan.count();
+  if (countWifiPlans === 0) {
+    await prisma.wifiPlan.createMany({
       data: [
         {
-          customerName: 'Pak RT 03 Bogem',
-          customerPhone: '081234567890',
-          eventDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-          menuDetail: 'Nasi Kuning Komplit, Ayam Goreng Lengkuas, Sambal Goreng Ati, Kerupuk, Buah Pisang',
-          portion: 80,
-          totalPrice: 1600000,
-          status: OrderStatus.DIPROSES,
-          notes: 'Diantar ke balai RT 03 jam 11 siang tepat.',
-          createdById: user.id,
-          syncedToSheet: false,
+          name: 'Paket Warga Hemat',
+          speed: '10 Mbps',
+          price: 100000,
+          description: 'Akses internet cepat hemat untuk rumah tangga',
+          isActive: true,
         },
         {
-          customerName: 'Ibu Ratna (Arisan PKK)',
-          customerPhone: '085712345678',
-          eventDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-          menuDetail: 'Snack Box (Lemper Ayam, Pastel Basah, Bolu Kukus, Air Mineral Cup)',
-          portion: 50,
-          totalPrice: 500000,
-          status: OrderStatus.PENDING,
-          notes: 'Box warna putih polos.',
-          createdById: user.id,
-          syncedToSheet: false,
+          name: 'Paket Usaha & Keluarga',
+          speed: '20 Mbps',
+          price: 150000,
+          description: 'Optimal untuk warung, streaming & kebutuhan keluarga',
+          isActive: true,
         },
         {
-          customerName: 'Karang Taruna Bogem',
-          customerPhone: '087899887766',
-          eventDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-          menuDetail: 'Nasi Liwet Sunda, Ayam Bakar Madu, Tahu Tempe, Lalapan, Es Teh Manis',
-          portion: 120,
-          totalPrice: 3000000,
-          status: OrderStatus.SELESAI,
-          notes: 'Sudah lunas dan acara selesai lancar.',
-          createdById: admin.id,
-          syncedToSheet: false,
+          name: 'Paket Balai & Kantor Desa',
+          speed: '50 Mbps',
+          price: 300000,
+          description: 'Koneksi dedicated balai desa & fasilitas publik',
+          isActive: true,
         },
       ],
     });
-    console.log('Sample catering orders created.');
+    console.log('Sample WiFi plans seeded.');
+  }
+
+  // 6. Seed Sample Cattle (Sapi) if empty
+  const countCattle = await prisma.cattle.count();
+  if (countCattle === 0) {
+    await prisma.cattle.createMany({
+      data: [
+        {
+          tagNumber: 'SP-BGM-01',
+          name: 'Si Bima',
+          breed: 'Simental Super',
+          gender: CattleGender.JANTAN,
+          status: CattleStatus.PENGGEMUKAN,
+          purchaseDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+          purchasePrice: 16500000,
+          initialWeight: 280,
+          currentWeight: 375,
+          lastWeighedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+          notes: 'Program Ketahanan Pangan Desa Bogem 2026',
+        },
+        {
+          tagNumber: 'SP-BGM-02',
+          name: 'Si Arjuna',
+          breed: 'Limousin Cross',
+          gender: CattleGender.JANTAN,
+          status: CattleStatus.SIAP_JUAL,
+          purchaseDate: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000),
+          purchasePrice: 17000000,
+          initialWeight: 310,
+          currentWeight: 440,
+          lastWeighedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+          notes: 'Siap panen kurban / pesanan peternak',
+        },
+      ],
+    });
+    console.log('Sample Cattle records seeded.');
   }
 
   console.log('Seeding finished successfully.');

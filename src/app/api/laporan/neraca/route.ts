@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import { getBalanceSheet } from '@/lib/accounting';
+import { BusinessUnit } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,12 +14,13 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const asOfDateParam = searchParams.get('asOfDate') || searchParams.get('endDate');
+    const businessUnitParam = searchParams.get('businessUnit');
 
     const asOfDate = asOfDateParam
       ? new Date(asOfDateParam)
       : new Date();
 
-    const report = await getBalanceSheet(asOfDate);
+    const report = await getBalanceSheet(asOfDate, (businessUnitParam as BusinessUnit | 'ALL') || undefined);
     return NextResponse.json({ data: report });
   } catch (error) {
     console.error('Error in neraca API:', error);
