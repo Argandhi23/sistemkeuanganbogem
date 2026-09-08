@@ -61,6 +61,84 @@ const getUnitRoute = (unit: string) => {
   }
 };
 
+interface UnitAccountConfig {
+  PEMASUKAN: {
+    primaryCodes: string[];
+    secondaryCodes?: string[];
+  };
+  PENGELUARAN: {
+    primaryCodes: string[];
+    secondaryCodes?: string[];
+    assetCodes?: string[];
+  };
+}
+
+const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
+  RENTAL_MOLEN: {
+    PEMASUKAN: {
+      primaryCodes: ['4010'], // Pendapatan Sewa Mesin Molen
+      secondaryCodes: ['4004', '4002'], // Ongkir Pengantaran Molen, Pendapatan Usaha Lain-lain
+    },
+    PENGELUARAN: {
+      primaryCodes: ['5011', '5012'], // Pemeliharaan, Oli & Sparepart Molen, BBM / Solar Mesin Molen
+      secondaryCodes: ['5005', '5007'], // Transportasi & Bensin Pengantaran, Beban Operasional Lain-lain
+      assetCodes: ['1201'], // Aset Peralatan & Mesin Molen
+    },
+  },
+  WIFI_DESA: {
+    PEMASUKAN: {
+      primaryCodes: ['4020'], // Pendapatan Retribusi / Iuran WiFi Balai Desa
+      secondaryCodes: ['4002'], // Pendapatan Lain-lain (misal pasang baru / voucher)
+    },
+    PENGELUARAN: {
+      primaryCodes: ['5021', '5022'], // Langganan Bandwidth & ISP, Pemeliharaan Jaringan & Kabel WiFi
+      secondaryCodes: ['5005', '5007'], // Transportasi & Bensin Teknisi, Beban Operasional Lain-lain
+      assetCodes: ['1202'], // Aset Jaringan & Router WiFi Desa
+    },
+  },
+  PPOB: {
+    PEMASUKAN: {
+      primaryCodes: ['4030'], // Pendapatan Margin & Admin Fee PPOB
+      secondaryCodes: ['4002'], // Pendapatan Lain-lain
+    },
+    PENGELUARAN: {
+      primaryCodes: ['5031'], // Beban Operasional & Kertas Struk PPOB
+      secondaryCodes: ['6001', '5007'], // Biaya Admin Bank / Top Up Saldo, Beban Operasional Lain-lain
+    },
+  },
+  CATERING: {
+    PEMASUKAN: {
+      primaryCodes: ['4001', '4003'], // Pendapatan Catering, Sewa Alat Catering
+      secondaryCodes: ['4004', '4002'], // Ongkir Pengantaran, Pendapatan Usaha Lain-lain
+    },
+    PENGELUARAN: {
+      primaryCodes: ['5001', '5002', '5003', '5004', '1004', '1005'], // Bahan Baku, Box Snack, Upah Masak, Gas Elpiji Dapur, Persediaan, Perlengkapan
+      secondaryCodes: ['5005', '5007'], // Transportasi Pengantaran, Beban Operasional Lain-lain
+    },
+  },
+  KETAHANAN_PANGAN: {
+    PEMASUKAN: {
+      primaryCodes: ['4040'], // Pendapatan Penjualan Ternak Sapi
+      secondaryCodes: ['4002', '3003'], // Penjualan Pupuk/Kotoran Sapi, Penyertaan Modal Ketahanan Pangan
+    },
+    PENGELUARAN: {
+      primaryCodes: ['5041', '5042', '5043'], // Pakan Rumput/Konsentrat, Vaksin/Obat/Dokter, Pemeliharaan Kandang & Upah
+      secondaryCodes: ['5005', '5007'], // Transportasi Pakan, Beban Operasional Lain-lain
+      assetCodes: ['1203'], // Aset Biologis (Ternak Sapi)
+    },
+  },
+  UMUM: {
+    PEMASUKAN: {
+      primaryCodes: ['4002', '4004', '4101'], // Pendapatan Lain-lain, Ongkir, Bunga Bank
+      secondaryCodes: ['3001', '3002', '2001', '2002'], // Modal Usaha, Laba Ditahan, Utang Usaha, Pinjaman
+    },
+    PENGELUARAN: {
+      primaryCodes: ['5005', '5006', '5007', '5008', '5009', '5010'], // Transport Kantor, Listrik/Air Kantor, Operasional Lain, Diskon, Promosi, Kebersihan
+      secondaryCodes: ['6001', '6002', '2001', '2002', '3004'], // Admin Bank, Bunga Pinjaman, Utang Usaha, Bagi Hasil PADes
+    },
+  },
+};
+
 function TambahTransaksiForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -86,156 +164,75 @@ function TambahTransaksiForm() {
   const [error, setError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  // Saring akun berdasarkan Tipe Kas dan Unit Usaha yang dipilih
-  const getValidAccountsForTypeAndUnit = (
-    trxType: 'PEMASUKAN' | 'PENGELUARAN',
-    unit: string,
-    accList: AccountItem[]
-  ) => {
-    // Saring keluar akun kas/bank penampung
-    const nonCash = accList.filter(
-      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
-    );
-
-    if (trxType === 'PEMASUKAN') {
-      return nonCash.filter((a) => {
-        // 1. Akun pendapatan unit itu sendiri
-        if (a.businessUnit === unit && (a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.code.startsWith('40'))) {
-          return true;
-        }
-        // 2. Akun pendapatan usaha lain & bunga bank umum yang bisa masuk ke unit
-        if (['4002', '4101'].includes(a.code)) return true;
-        // 3. Penerimaan modal & pinjaman
-        if (['3001', '3002', '3003', '2001', '2002'].includes(a.code)) return true;
-        // 4. Pelunasan piutang usaha
-        if (a.code === '1003') return true;
-        return false;
-      });
-    } else {
-      return nonCash.filter((a) => {
-        // 1. Beban & persediaan/aset milik unit itu sendiri
-        if (a.businessUnit === unit) return true;
-        // 2. Beban operasional umum penunjang yang dapat dikeluarkan oleh unit mana pun
-        if (['5005', '5006', '5007', '5008', '5009', '5010', '6001', '6002', '2001', '2002', '3004'].includes(a.code)) {
-          return true;
-        }
-        // 3. Aset peralatan umum jika pengadaan dilakukan oleh unit
-        if (a.businessUnit === 'UMUM' && a.code.startsWith('12')) return true;
-        return false;
-      });
-    }
-  };
-
   const getAccountGroups = (
     trxType: 'PEMASUKAN' | 'PENGELUARAN',
     unit: string,
     accList: AccountItem[]
   ) => {
     const unitLabel = getUnitLabel(unit);
+    const cfg = UNIT_ACCOUNTS_CONFIG[unit] || UNIT_ACCOUNTS_CONFIG.UMUM;
+
+    const nonCash = accList.filter(
+      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
+    );
 
     if (trxType === 'PEMASUKAN') {
-      // 1. Pendapatan Utama Unit Usaha
-      const unitPendapatan = accList.filter(
-        (a) => a.businessUnit === unit && (a.category === 'PENDAPATAN' || a.code.startsWith('40'))
-      );
-      // 2. Pendapatan Operasional Lain & Bunga Bank
-      const nonOperasional = accList.filter(
+      const primary = nonCash.filter((a) => cfg.PEMASUKAN.primaryCodes.includes(a.code));
+      const secondary = nonCash.filter((a) => cfg.PEMASUKAN.secondaryCodes?.includes(a.code));
+      const custom = nonCash.filter(
         (a) =>
-          !unitPendapatan.some((x) => x.id === a.id) &&
-          (a.code === '4002' || a.code === '4101' || a.category === 'PENDAPATAN')
+          a.businessUnit === unit &&
+          a.category === 'PENDAPATAN' &&
+          !cfg.PEMASUKAN.primaryCodes.includes(a.code) &&
+          !cfg.PEMASUKAN.secondaryCodes?.includes(a.code)
       );
-      // 3. Penerimaan Modal & Pinjaman
-      const modalDanUtang = accList.filter(
-        (a) =>
-          a.category === 'MODAL' ||
-          a.category === 'KEWAJIBAN' ||
-          a.code.startsWith('2') ||
-          a.code.startsWith('3')
-      );
-      // 4. Pelunasan Piutang
-      const piutang = accList.filter((a) => a.code === '1003' || a.category === 'ASET');
 
       return [
         {
-          label: unit !== 'UMUM' ? `Pendapatan Utama - ${unitLabel}` : 'Pendapatan Usaha Utama',
-          accounts: unitPendapatan.length > 0 ? unitPendapatan : accList.filter((a) => a.code.startsWith('40')),
+          label: unit !== 'UMUM' ? `Pendapatan Utama - ${unitLabel}` : 'Pendapatan Operasional Kantor',
+          accounts: [...primary, ...custom],
         },
         {
-          label: 'Pendapatan Operasional Lain & Bunga Bank',
-          accounts: nonOperasional,
-        },
-        {
-          label: 'Penerimaan Modal & Pinjaman',
-          accounts: modalDanUtang,
-        },
-        {
-          label: 'Pelunasan Piutang Usaha',
-          accounts: piutang,
+          label: 'Pendapatan Lain & Penunjang',
+          accounts: secondary,
         },
       ].filter((g) => g.accounts.length > 0);
     } else {
-      // 1. Biaya Pokok & Beban Utama Unit Usaha
-      const unitBiaya = accList.filter(
+      const primary = nonCash.filter((a) => cfg.PENGELUARAN.primaryCodes.includes(a.code));
+      const secondary = nonCash.filter((a) => cfg.PENGELUARAN.secondaryCodes?.includes(a.code));
+      const asset = nonCash.filter((a) => cfg.PENGELUARAN.assetCodes?.includes(a.code));
+      const custom = nonCash.filter(
         (a) =>
           a.businessUnit === unit &&
-          (a.category === 'BEBAN_OPERASIONAL' ||
-            a.code.startsWith('5') ||
-            a.code === '1004' ||
-            a.code === '1005')
-      );
-      // 2. Beban Operasional & Keperluan Usaha
-      const operasionalUmum = accList.filter(
-        (a) =>
-          !unitBiaya.some((x) => x.id === a.id) &&
-          ['5005', '5006', '5007', '5008', '5009', '5010'].includes(a.code)
-      );
-      // 3. Pengadaan Aset & Peralatan
-      const asetTetap = accList.filter(
-        (a) =>
-          (a.code.startsWith('12') || (a.businessUnit === unit && a.category === 'ASET')) &&
-          !unitBiaya.some((x) => x.id === a.id)
-      );
-      // 4. Pembayaran Utang & Beban Bank
-      const utangDanNonOpex = accList.filter(
-        (a) =>
-          a.category === 'KEWAJIBAN' ||
-          a.category === 'BEBAN_NON_OPERASIONAL' ||
-          a.code.startsWith('2') ||
-          a.code.startsWith('6') ||
-          a.code === '3004'
+          a.category === 'BEBAN_OPERASIONAL' &&
+          !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+          !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
       );
 
       return [
         {
-          label: unit !== 'UMUM' ? `Biaya Pokok & Beban Utama - ${unitLabel}` : 'Beban Operasional Kantor',
-          accounts: unitBiaya.length > 0 ? unitBiaya : operasionalUmum,
+          label: unit !== 'UMUM' ? `Biaya Pokok & Operasional Utama - ${unitLabel}` : 'Beban Operasional Kantor',
+          accounts: [...primary, ...custom],
         },
         {
-          label: 'Beban Operasional & Keperluan Usaha',
-          accounts: unitBiaya.length > 0 ? operasionalUmum : [],
+          label: 'Beban Penunjang & Operasional',
+          accounts: secondary,
         },
         {
-          label: 'Pengadaan Aset & Peralatan Usaha',
-          accounts: asetTetap,
-        },
-        {
-          label: 'Pembayaran Utang & Beban Bank',
-          accounts: utangDanNonOpex,
+          label: `Pengadaan Aset ${unitLabel}`,
+          accounts: asset,
         },
       ].filter((g) => g.accounts.length > 0);
     }
   };
 
   const getPreferredAccount = (
-    trxType: 'PEMASUKAN' | 'PENGELUARAN',
-    unit: string,
     groups: Array<{ label: string; accounts: AccountItem[] }>
   ) => {
-    if (groups.length === 0) return '';
-    // Prioritaskan akun milik unit di grup pertama
-    const unitMatch = groups[0].accounts.find((a) => a.businessUnit === unit);
-    if (unitMatch) return unitMatch.id;
-    return groups[0].accounts[0]?.id || '';
+    if (groups.length > 0 && groups[0].accounts.length > 0) {
+      return groups[0].accounts[0].id;
+    }
+    return '';
   };
 
   const applyInitialAccount = (
@@ -243,9 +240,8 @@ function TambahTransaksiForm() {
     unit: string,
     accList: AccountItem[]
   ) => {
-    const valid = getValidAccountsForTypeAndUnit(trxType, unit, accList);
-    const groups = getAccountGroups(trxType, unit, valid);
-    const pref = getPreferredAccount(trxType, unit, groups);
+    const groups = getAccountGroups(trxType, unit, accList);
+    const pref = getPreferredAccount(groups);
     setSelectedAccountId(pref);
   };
 
@@ -276,8 +272,7 @@ function TambahTransaksiForm() {
     applyInitialAccount(type, newUnit, accounts);
   };
 
-  const filteredAccounts = getValidAccountsForTypeAndUnit(type, businessUnit, accounts);
-  const accountGroups = getAccountGroups(type, businessUnit, filteredAccounts);
+  const accountGroups = getAccountGroups(type, businessUnit, accounts);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
