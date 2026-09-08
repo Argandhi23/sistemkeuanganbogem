@@ -283,7 +283,7 @@ export default function LaporanPage() {
                   <option value="CATERING">Catering Desa</option>
                   <option value="RENTAL_MOLEN">Penyewaan Molen</option>
                   <option value="WIFI_DESA">WiFi Balai Desa</option>
-                  <option value="PPOB">PPOB Loket Desa</option>
+                  <option value="PPOB">PPOB</option>
                   <option value="KETAHANAN_PANGAN">Peternakan Sapi</option>
                   <option value="UMUM">Operasional Kantor / Umum</option>
                 </select>

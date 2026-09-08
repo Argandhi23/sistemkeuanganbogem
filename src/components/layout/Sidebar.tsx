@@ -64,7 +64,7 @@ export function Sidebar() {
       color: 'text-blue-500',
     },
     {
-      name: 'PPOB Loket Desa',
+      name: 'PPOB',
       href: '/units/ppob',
       icon: Smartphone,
       color: 'text-emerald-500',
@@ -98,19 +98,8 @@ export function Sidebar() {
   return (
     <aside className="w-64 bg-transparent p-2 flex flex-col justify-between hidden lg:flex no-print">
       <div className="space-y-5">
-        {/* Quick Action Catat Transaksi */}
-        <div className="pt-1">
-          <Link
-            href="/transaksi/tambah"
-            className="w-full h-9 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-medium text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-          >
-            <span className="text-emerald-400 font-bold text-sm leading-none">+</span>
-            <span>Catat Transaksi Kas</span>
-          </Link>
-        </div>
-
         {/* Menu Navigasi Utama */}
-        <div>
+        <div className="pt-1">
           <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
             Utama
           </div>
@@ -147,11 +136,8 @@ export function Sidebar() {
 
         {/* Menu Unit Usaha BUMDes */}
         <div>
-          <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5 flex items-center justify-between">
-            <span>Unit Usaha BUMDes</span>
-            <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-bold">
-              5 Unit
-            </span>
+          <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
+            Unit Usaha BUMDes
           </div>
           <nav className="space-y-0.5">
             {unitMenuItems.map((item) => {

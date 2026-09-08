@@ -1,5 +1,5 @@
 export let cachedStats: { data: unknown; timestamp: number } | null = null;
-export const STATS_CACHE_MS = 10 * 1000;
+export const STATS_CACHE_MS = 60 * 1000; // 60 detik cache server
 
 export function invalidateDashboardStatsCache() {
   cachedStats = null;
@@ -17,7 +17,7 @@ export function getDashboardStatsCache() {
 }
 
 export let cachedAccounts: { data: unknown; timestamp: number } | null = null;
-export const ACCOUNTS_CACHE_MS = 30 * 1000;
+export const ACCOUNTS_CACHE_MS = 5 * 60 * 1000; // 5 menit cache COA
 
 export function invalidateAccountsCache() {
   cachedAccounts = null;

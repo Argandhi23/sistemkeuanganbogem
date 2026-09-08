@@ -16,9 +16,9 @@ import {
   Smartphone,
   Sprout,
   Building2,
-  Plus,
 } from 'lucide-react';
 import { formatRupiah } from '@/lib/formatters';
+import { getClientDashboardCache, setClientDashboardCache } from '@/lib/client-cache';
 
 const CashFlowChart = dynamic(() => import('@/components/dashboard/CashFlowChart'), {
   ssr: false,
@@ -79,16 +79,17 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [data, setData] = useState<DashboardData | null>(() => getClientDashboardCache() as DashboardData | null);
+  const [isLoading, setIsLoading] = useState(!getClientDashboardCache());
   const [unitTimeframe, setUnitTimeframe] = useState<'allTime' | 'thisMonth'>('allTime');
 
-  const fetchStats = async () => {
+  const fetchStats = async (isBackground = false) => {
     try {
-      setIsLoading(true);
+      if (!isBackground) setIsLoading(true);
       const res = await fetch('/api/dashboard/stats');
       if (res.ok) {
         const json = await res.json();
+        setClientDashboardCache(json.data);
         setData(json.data);
       }
     } catch (err) {
@@ -99,7 +100,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    fetchStats();
+    fetchStats(Boolean(getClientDashboardCache()));
   }, []);
 
   const currentMonthName = new Intl.DateTimeFormat('id-ID', {
@@ -148,46 +149,48 @@ export default function DashboardPage() {
       {/* Header Utama Modern */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-200">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Dashboard Keuangan BUMDes Bogem
-            </h1>
-            <span className="inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-700 text-[11px] font-medium rounded-full border border-slate-200">
-              5 Unit Usaha
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Monitoring arus kas riil terpadu • Periode {currentMonthName}
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+            Dashboard Keuangan BUMDes Bogem
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+            Periode {currentMonthName}
           </p>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <a
             href="/api/export/excel?type=transaksi"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-subtle transition-all"
             title="Download Rekap Transaksi Buku Kas Excel"
           >
-            <Download className="w-3.5 h-3.5 text-emerald-600" />
+            <Download className="w-3.5 h-3.5 text-slate-500" />
             <span>Download Excel</span>
           </a>
           <Link
-            href="/transaksi/tambah"
+            href="/transaksi/tambah?type=PENGELUARAN"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-semibold shadow-subtle transition-all"
+          >
+            <ArrowUpRight className="w-3.5 h-3.5" />
+            <span>- Uang Keluar</span>
+          </Link>
+          <Link
+            href="/transaksi/tambah?type=PEMASUKAN"
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-subtle transition-all"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Catat Kas</span>
+            <ArrowDownLeft className="w-3.5 h-3.5" />
+            <span>+ Uang Masuk</span>
           </Link>
         </div>
       </div>
 
-      {/* Grid Ringkasan Keuangan Konsolidasi (Top 4 KPIs) */}
+      {/* Grid Ringkasan Keuangan (Top 4 KPIs) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Total Saldo Kas Riil */}
+        {/* Card 1: Total Saldo Kas */}
         <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-card flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs font-medium text-slate-400">
-              <span>Total Saldo Kas Konsolidasi</span>
+              <span>Total Saldo Kas</span>
               <div className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center">
                 <Wallet className="w-4 h-4 text-emerald-400" />
               </div>
@@ -196,20 +199,15 @@ export default function DashboardPage() {
               <div className="text-2xl font-bold tracking-tight text-white tabular-nums">
                 {formatRupiah(data?.summary?.currentBalance ?? 0)}
               </div>
-              <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-400">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Kas Riil Seluruh Unit Usaha</span>
-              </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Buku Kas Umum</span>
+          <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-end text-xs">
             <Link
               href="/transaksi"
               className="font-medium text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 transition-colors"
             >
-              <span>Buka Kas</span>
+              <span>Buku Kas</span>
               <ArrowRight className="w-3 h-3" />
             </Link>
           </div>
@@ -219,7 +217,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-              <span>Pemasukan Konsolidasi</span>
+              <span>Pemasukan</span>
               <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-100">
                 <ArrowDownLeft className="w-4 h-4" />
               </div>
@@ -240,14 +238,13 @@ export default function DashboardPage() {
                     {data.summary.incomeGrowth >= 0 ? '+' : ''}{data.summary.incomeGrowth}%
                   </span>
                 )}
-                <span>Bulan {currentMonthName.split(' ')[0]}</span>
+                <span>Bulan Ini</span>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-            <span className="text-slate-500">Omzet 5 Unit</span>
-            <Link href="/transaksi?type=PEMASUKAN" className="text-slate-900 font-medium hover:underline inline-flex items-center gap-1">
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end text-xs">
+            <Link href="/transaksi?type=PEMASUKAN" className="text-slate-700 font-medium hover:text-emerald-700 inline-flex items-center gap-1 transition-colors">
               <span>Rincian</span>
               <ArrowRight className="w-3 h-3 text-slate-400" />
             </Link>
@@ -258,7 +255,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-              <span>Pengeluaran & Beban</span>
+              <span>Pengeluaran</span>
               <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-700 flex items-center justify-center border border-rose-100">
                 <ArrowUpRight className="w-4 h-4" />
               </div>
@@ -268,14 +265,13 @@ export default function DashboardPage() {
                 -{formatRupiah(data?.summary?.monthlyExpense ?? 0)}
               </div>
               <div className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500">
-                <span className="text-[11px] text-slate-400">Operasional seluruh unit</span>
+                <span>Bulan Ini</span>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-            <span className="text-slate-500">Bahan & Operasional</span>
-            <Link href="/transaksi?type=PENGELUARAN" className="text-slate-900 font-medium hover:underline inline-flex items-center gap-1">
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end text-xs">
+            <Link href="/transaksi?type=PENGELUARAN" className="text-slate-700 font-medium hover:text-rose-700 inline-flex items-center gap-1 transition-colors">
               <span>Rincian</span>
               <ArrowRight className="w-3 h-3 text-slate-400" />
             </Link>
@@ -286,7 +282,7 @@ export default function DashboardPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-              <span>Laba Bersih Konsolidasi</span>
+              <span>Laba Bersih</span>
               <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center border border-blue-100">
                 <TrendingUp className="w-4 h-4" />
               </div>
@@ -307,15 +303,14 @@ export default function DashboardPage() {
                       : 'bg-rose-50 text-rose-700 border border-rose-200'
                   }`}
                 >
-                  {netMonthlyProfit >= 0 ? 'Surplus Operasional' : 'Defisit Operasional'}
+                  {netMonthlyProfit >= 0 ? 'Surplus' : 'Defisit'}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-            <span className="text-slate-500">Laporan Laba Rugi</span>
-            <Link href="/laporan" className="text-slate-900 font-medium hover:underline inline-flex items-center gap-1">
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end text-xs">
+            <Link href="/laporan" className="text-slate-700 font-medium hover:text-slate-900 inline-flex items-center gap-1 transition-colors">
               <span>Laporan</span>
               <ArrowRight className="w-3 h-3 text-slate-400" />
             </Link>
@@ -323,16 +318,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* SECTION: KINERJA KEUANGAN PER UNIT USAHA (Performance Matrix) */}
+      {/* SECTION: KINERJA KEUANGAN PER UNIT USAHA */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-              Kinerja Finansial Unit Usaha BUMDes
+            <h2 className="text-base font-bold text-slate-900 tracking-tight">
+              Kinerja Unit Usaha
             </h2>
-            <p className="text-xs text-slate-500">
-              Rincian pemasukan, pengeluaran, dan laba operasional riil tiap unit
-            </p>
           </div>
 
           {/* Toggle Filter: All Time vs Bulan Ini */}
@@ -372,20 +364,15 @@ export default function DashboardPage() {
                 className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle hover:border-slate-300 transition-all flex flex-col justify-between"
               >
                 <div>
-                  {/* Top Bar: Icon, Name, Category */}
+                  {/* Top Bar: Icon & Name */}
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center border border-slate-200/60">
                         {getUnitIcon(unit.unit)}
                       </div>
-                      <div>
-                        <h3 className="font-bold text-sm text-slate-900 leading-tight">
-                          {unit.name}
-                        </h3>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          {unit.category}
-                        </p>
-                      </div>
+                      <h3 className="font-bold text-sm text-slate-900 leading-tight">
+                        {unit.name}
+                      </h3>
                     </div>
 
                     {unit.activeOrdersCount !== undefined && unit.activeOrdersCount > 0 && (
@@ -422,18 +409,14 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Card Footer: Transaction count & Single Clean Action Link */}
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <span className="text-slate-400 text-[11px]">
-                    {metrics.count} Transaksi Kas
-                  </span>
-
+                {/* Card Footer: Clean Link */}
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end text-xs">
                   <Link
                     href={unit.route}
-                    className="font-semibold text-slate-700 hover:text-emerald-700 inline-flex items-center gap-1 transition-colors text-xs"
+                    className="font-medium text-slate-700 hover:text-slate-900 inline-flex items-center gap-1 transition-colors text-xs"
                   >
-                    <span>Buku Kas Unit</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <span>Buku Kas</span>
+                    <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
                   </Link>
                 </div>
               </div>
@@ -444,12 +427,11 @@ export default function DashboardPage() {
 
       {/* Main Chart & Recent Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Grafik Arus Kas Konsolidasi */}
+        {/* Grafik Arus Kas 6 Bulan */}
         <div className="lg:col-span-2 bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-bold text-sm text-slate-900">Arus Kas Konsolidasi 6 Bulan Terakhir</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Tren pemasukan vs pengeluaran seluruh unit BUMDes</p>
+              <h2 className="font-bold text-sm text-slate-900">Arus Kas 6 Bulan Terakhir</h2>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <div className="flex items-center gap-1.5">
@@ -470,12 +452,9 @@ export default function DashboardPage() {
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <div>
-                <h2 className="font-bold text-sm text-slate-900">Aktivitas Kas Terbaru</h2>
-                <p className="text-[11px] text-slate-400">Semua unit BUMDes</p>
-              </div>
+              <h2 className="font-bold text-sm text-slate-900">Aktivitas Terbaru</h2>
               <Link href="/transaksi" className="text-xs font-semibold text-emerald-600 hover:text-emerald-700">
-                Buku Kas →
+                Lihat Semua →
               </Link>
             </div>
 
@@ -521,14 +500,13 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-            <span className="text-slate-400 text-[11px]">Buku Kas Terpadu</span>
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end text-xs">
             <Link
               href="/transaksi"
-              className="text-xs font-semibold text-slate-700 hover:text-emerald-700 inline-flex items-center gap-1 transition-colors"
+              className="text-xs font-medium text-slate-700 hover:text-slate-900 inline-flex items-center gap-1 transition-colors"
             >
               <span>Buka Seluruh Buku Kas</span>
-              <ArrowRight className="w-3 h-3" />
+              <ArrowRight className="w-3 h-3 text-slate-400" />
             </Link>
           </div>
         </div>

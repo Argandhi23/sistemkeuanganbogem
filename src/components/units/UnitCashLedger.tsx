@@ -53,6 +53,26 @@ const MONTH_NAMES = [
 
 const YEARS = [2024, 2025, 2026, 2027];
 
+const unitLedgerCache: Record<
+  string,
+  {
+    transactions: TransactionItem[];
+    totalPages: number;
+    totalCount: number;
+    summary: { totalIncome: number; totalExpense: number; balance: number };
+  }
+> = {};
+
+export function invalidateUnitLedgerCache(unitKey?: string) {
+  if (unitKey) {
+    delete unitLedgerCache[unitKey];
+  } else {
+    for (const key of Object.keys(unitLedgerCache)) {
+      delete unitLedgerCache[key];
+    }
+  }
+}
+
 export default function UnitCashLedger({
   unit,
   title,
@@ -61,24 +81,28 @@ export default function UnitCashLedger({
   icon,
   badgeColor = 'bg-slate-100 text-slate-700 border-slate-200',
 }: UnitCashLedgerProps) {
-  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cached = unitLedgerCache[unit];
+  const [transactions, setTransactions] = useState<TransactionItem[]>(() => cached?.transactions || []);
+  const [loading, setLoading] = useState(!cached);
   const [search, setSearch] = useState('');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [summary, setSummary] = useState({
-    totalIncome: 0,
-    totalExpense: 0,
-    balance: 0,
-  });
+  const [totalPages, setTotalPages] = useState(cached?.totalPages || 1);
+  const [totalCount, setTotalCount] = useState(cached?.totalCount || 0);
+  const [summary, setSummary] = useState(
+    () =>
+      cached?.summary || {
+        totalIncome: 0,
+        totalExpense: 0,
+        balance: 0,
+      }
+  );
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const fetchTransactions = useCallback(async () => {
+  const fetchTransactions = useCallback(async (isBackground = false) => {
     try {
-      setLoading(true);
+      if (!isBackground) setLoading(true);
       const query = new URLSearchParams();
       query.set('businessUnit', unit);
       query.set('page', page.toString());
@@ -91,17 +115,27 @@ export default function UnitCashLedger({
       const res = await fetch(`/api/transaksi?${query.toString()}`);
       if (res.ok) {
         const json = await res.json();
-        setTransactions(json.data || []);
-        if (json.pagination) {
-          setTotalPages(json.pagination.totalPages || 1);
-          setTotalCount(json.pagination.total || 0);
-        }
-        if (json.summary) {
-          setSummary({
-            totalIncome: Number(json.summary.totalIncome || 0),
-            totalExpense: Number(json.summary.totalExpense || 0),
-            balance: Number(json.summary.balance || 0),
-          });
+        const txs = json.data || [];
+        const tPages = json.pagination?.totalPages || 1;
+        const tCount = json.pagination?.total || 0;
+        const smm = {
+          totalIncome: Number(json.summary?.totalIncome || 0),
+          totalExpense: Number(json.summary?.totalExpense || 0),
+          balance: Number(json.summary?.balance || 0),
+        };
+
+        setTransactions(txs);
+        setTotalPages(tPages);
+        setTotalCount(tCount);
+        setSummary(smm);
+
+        if (!search.trim() && !selectedYear && selectedMonth === 'ALL' && page === 1) {
+          unitLedgerCache[unit] = {
+            transactions: txs,
+            totalPages: tPages,
+            totalCount: tCount,
+            summary: smm,
+          };
         }
       }
     } catch (err) {
@@ -112,8 +146,8 @@ export default function UnitCashLedger({
   }, [unit, page, search, selectedYear, selectedMonth]);
 
   useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+    fetchTransactions(Boolean(unitLedgerCache[unit]));
+  }, [fetchTransactions, unit]);
 
   const handleDelete = async (id: string, desc: string) => {
     if (!confirm(`Hapus catatan transaksi kas "${desc}"? Tindakan ini akan memperbarui saldo dan buku besar.`)) {
@@ -131,6 +165,7 @@ export default function UnitCashLedger({
         const resJson = await res.json();
         setMessage({ type: 'error', text: resJson.error || 'Gagal menghapus transaksi.' });
       } else {
+        invalidateUnitLedgerCache(unit);
         fetchTransactions();
       }
     } catch {
@@ -173,31 +208,31 @@ export default function UnitCashLedger({
           </div>
         </div>
 
-        {/* Action Buttons Ringkas (No Redundant Links) */}
+        {/* Action Buttons Ringkas */}
         <div className="flex flex-wrap items-center gap-2">
           <a
             href={`/api/export/excel?type=transaksi&businessUnit=${unit}`}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-subtle transition-all"
             title={`Download Buku Kas ${title} format Excel`}
           >
-            <Download className="w-3.5 h-3.5 text-emerald-600" />
+            <Download className="w-3.5 h-3.5 text-slate-500" />
             <span>Export Excel</span>
           </a>
 
           <Link
             href={`/transaksi/tambah?businessUnit=${unit}&type=PENGELUARAN`}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold shadow-subtle transition-all"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-semibold shadow-subtle transition-all"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Kas Keluar</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+            <span>- Uang Keluar</span>
           </Link>
 
           <Link
             href={`/transaksi/tambah?businessUnit=${unit}&type=PEMASUKAN`}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-subtle transition-all"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Kas Masuk</span>
+            <ArrowDownLeft className="w-3.5 h-3.5" />
+            <span>+ Uang Masuk</span>
           </Link>
         </div>
       </div>
@@ -223,7 +258,7 @@ export default function UnitCashLedger({
         {/* Card 1: Total Pemasukan Unit */}
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Total Uang Masuk (Omzet)</span>
+            <span>Total Uang Masuk</span>
             <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center border border-emerald-100">
               <ArrowDownLeft className="w-4 h-4" />
             </div>
@@ -232,16 +267,13 @@ export default function UnitCashLedger({
             <div className="text-2xl font-bold tracking-tight text-emerald-700 tabular-nums">
               +{formatRupiah(summary.totalIncome)}
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Seluruh penerimaan kas unit {category.toLowerCase()}
-            </p>
           </div>
         </div>
 
         {/* Card 2: Total Pengeluaran Unit */}
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Total Uang Keluar (Beban)</span>
+            <span>Total Uang Keluar</span>
             <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-700 flex items-center justify-center border border-rose-100">
               <ArrowUpRight className="w-4 h-4" />
             </div>
@@ -250,16 +282,13 @@ export default function UnitCashLedger({
             <div className="text-2xl font-bold tracking-tight text-rose-700 tabular-nums">
               -{formatRupiah(summary.totalExpense)}
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Biaya operasional & belanja bahan unit
-            </p>
           </div>
         </div>
 
         {/* Card 3: Laba Bersih Unit */}
         <div className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-subtle flex flex-col justify-between">
           <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-            <span>Laba Bersih / Sisa Kas Unit</span>
+            <span>Laba Bersih</span>
             <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center border border-blue-100">
               <TrendingUp className="w-4 h-4" />
             </div>
@@ -280,9 +309,8 @@ export default function UnitCashLedger({
                     : 'bg-rose-50 text-rose-700 border border-rose-200'
                 }`}
               >
-                {isProfit ? 'Surplus Kas' : 'Defisit Kas'}
+                {isProfit ? 'Surplus' : 'Defisit'}
               </span>
-              <span className="text-slate-400">• Dari {totalCount} transaksi</span>
             </div>
           </div>
         </div>

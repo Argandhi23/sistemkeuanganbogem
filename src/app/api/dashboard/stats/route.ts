@@ -8,9 +8,9 @@ export const dynamic = 'force-dynamic';
 
 const KNOWN_UNITS = [
   { key: 'CATERING', name: 'Catering Desa', category: 'Konsumsi & Nasi Box', route: '/units/catering' },
-  { key: 'RENTAL_MOLEN', name: 'Sewa Molen Cor', category: 'Alat Konstruksi', route: '/units/molen' },
+  { key: 'RENTAL_MOLEN', name: 'Sewa Molen', category: 'Alat Konstruksi', route: '/units/molen' },
   { key: 'WIFI_DESA', name: 'WiFi Balai Desa', category: 'Layanan Internet', route: '/units/wifi' },
-  { key: 'PPOB', name: 'PPOB Loket Desa', category: 'Pembayaran Online', route: '/units/ppob' },
+  { key: 'PPOB', name: 'PPOB', category: 'Pembayaran Online', route: '/units/ppob' },
   { key: 'KETAHANAN_PANGAN', name: 'Peternakan Sapi', category: 'Penggemukan Ternak', route: '/units/sapi' },
   { key: 'UMUM', name: 'Operasional Umum', category: 'Kas Kantor BUMDes', route: '/transaksi?businessUnit=UMUM' },
 ] as const;
@@ -28,7 +28,7 @@ export async function GET() {
         { data: cachedData },
         {
           headers: {
-            'Cache-Control': 'private, max-age=10, stale-while-revalidate=30',
+            'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
           },
         }
       );
@@ -304,7 +304,14 @@ export async function GET() {
 
     setDashboardStatsCache(payload);
 
-    return NextResponse.json({ data: payload });
+    return NextResponse.json(
+      { data: payload },
+      {
+        headers: {
+          'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+        },
+      }
+    );
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
     return NextResponse.json(

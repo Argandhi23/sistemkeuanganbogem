@@ -12,6 +12,8 @@ import { BigButton } from '@/components/ui/BigButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SuccessFeedback } from '@/components/ui/SuccessFeedback';
+import { invalidateClientDashboardCache } from '@/lib/client-cache';
+import { invalidateUnitLedgerCache } from '@/components/units/UnitCashLedger';
 
 interface AccountItem {
   id: string;
@@ -23,13 +25,53 @@ interface AccountItem {
 
 let clientAccountsCache: AccountItem[] | null = null;
 
+const getUnitLabel = (unit: string) => {
+  switch (unit) {
+    case 'CATERING':
+      return 'Catering Desa';
+    case 'RENTAL_MOLEN':
+      return 'Sewa Molen';
+    case 'WIFI_DESA':
+      return 'WiFi Balai Desa';
+    case 'PPOB':
+      return 'PPOB';
+    case 'KETAHANAN_PANGAN':
+      return 'Peternakan Sapi';
+    case 'UMUM':
+      return 'Operasional Kantor / Umum';
+    default:
+      return unit;
+  }
+};
+
+const getUnitRoute = (unit: string) => {
+  switch (unit) {
+    case 'CATERING':
+      return '/units/catering';
+    case 'RENTAL_MOLEN':
+      return '/units/molen';
+    case 'WIFI_DESA':
+      return '/units/wifi';
+    case 'PPOB':
+      return '/units/ppob';
+    case 'KETAHANAN_PANGAN':
+      return '/units/sapi';
+    default:
+      return '/';
+  }
+};
+
 function TambahTransaksiForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
+
+  // Deteksi jika dibuka dari unit usaha tertentu vs dari Beranda
+  const queryUnit = searchParams.get('businessUnit') || searchParams.get('unit');
+  const isUnitLocked = Boolean(queryUnit);
+  const initialUnit = queryUnit || 'CATERING';
   const initialType = searchParams.get('type') === 'PENGELUARAN' ? 'PENGELUARAN' : 'PEMASUKAN';
-  const initialUnit = searchParams.get('unit') || 'CATERING';
 
   const isSubmittingRef = useRef(false);
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>(initialType);
@@ -89,6 +131,25 @@ function TambahTransaksiForm() {
     }
   };
 
+  const getUnitSpecificAccounts = (
+    trxType: 'PEMASUKAN' | 'PENGELUARAN',
+    unit: string,
+    accList: AccountItem[]
+  ) => {
+    return accList.filter((a) => {
+      if (a.businessUnit !== unit) return false;
+      if (trxType === 'PEMASUKAN') {
+        return a.category === 'PENDAPATAN' || a.category === 'MODAL';
+      } else {
+        return (
+          a.category === 'BEBAN_OPERASIONAL' ||
+          a.category === 'BEBAN_NON_OPERASIONAL' ||
+          a.code.startsWith('12')
+        );
+      }
+    });
+  };
+
   const getPreferredAccount = (
     trxType: 'PEMASUKAN' | 'PENGELUARAN',
     unit: string,
@@ -110,11 +171,26 @@ function TambahTransaksiForm() {
     }
   };
 
+  const applyInitialAccount = (
+    trxType: 'PEMASUKAN' | 'PENGELUARAN',
+    unit: string,
+    accList: AccountItem[]
+  ) => {
+    if (isUnitLocked) {
+      const unitAccs = getUnitSpecificAccounts(trxType, unit, accList);
+      if (unitAccs.length > 0) {
+        setSelectedAccountId(unitAccs[0].id);
+        return;
+      }
+    }
+    const valid = getValidAccountsForTypeAndUnit(trxType, unit, accList);
+    const pref = getPreferredAccount(trxType, unit, valid);
+    setSelectedAccountId(pref);
+  };
+
   useEffect(() => {
     if (clientAccountsCache && clientAccountsCache.length > 0) {
-      const valid = getValidAccountsForTypeAndUnit(type, businessUnit, clientAccountsCache);
-      const pref = getPreferredAccount(type, businessUnit, valid);
-      setSelectedAccountId(pref);
+      applyInitialAccount(type, businessUnit, clientAccountsCache);
       return;
     }
     fetch('/api/accounts')
@@ -123,10 +199,7 @@ function TambahTransaksiForm() {
         const list: AccountItem[] = json.data || [];
         clientAccountsCache = list;
         setAccounts(list);
-
-        const validAccounts = getValidAccountsForTypeAndUnit(initialType, initialUnit, list);
-        const preferredId = getPreferredAccount(initialType, initialUnit, validAccounts);
-        setSelectedAccountId(preferredId);
+        applyInitialAccount(initialType, initialUnit, list);
       })
       .catch((err) => console.error('Error fetching accounts:', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,9 +207,7 @@ function TambahTransaksiForm() {
 
   const handleTypeChange = (newType: 'PEMASUKAN' | 'PENGELUARAN') => {
     setType(newType);
-    const valid = getValidAccountsForTypeAndUnit(newType, businessUnit, accounts);
-    const pref = getPreferredAccount(newType, businessUnit, valid);
-    setSelectedAccountId(pref);
+    applyInitialAccount(newType, businessUnit, accounts);
   };
 
   const handleUnitChange = (newUnit: string) => {
@@ -147,6 +218,7 @@ function TambahTransaksiForm() {
   };
 
   const filteredAccounts = getValidAccountsForTypeAndUnit(type, businessUnit, accounts);
+  const unitSpecificAccounts = getUnitSpecificAccounts(type, businessUnit, accounts);
 
   const getAccountGroups = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
     if (trxType === 'PEMASUKAN') {
@@ -233,6 +305,8 @@ function TambahTransaksiForm() {
       const json = await res.json();
 
       if (res.ok) {
+        invalidateClientDashboardCache();
+        invalidateUnitLedgerCache(businessUnit);
         setIsSuccess(true);
       } else {
         setError(json.error || 'Gagal menyimpan transaksi');
@@ -245,19 +319,30 @@ function TambahTransaksiForm() {
     }
   };
 
+  const pageTitle = isUnitLocked
+    ? `${type === 'PEMASUKAN' ? 'Uang Masuk' : 'Uang Keluar'} - ${getUnitLabel(businessUnit)}`
+    : (type === 'PEMASUKAN' ? 'Catat Uang Masuk' : 'Catat Uang Keluar');
+
+  const pageDesc = isUnitLocked
+    ? `Pencatatan kas operasional unit ${getUnitLabel(businessUnit)}`
+    : 'Pencatatan kas masuk dan kas keluar operasional BUMDes Bogem';
+
+  const backHref = isUnitLocked ? getUnitRoute(businessUnit) : '/';
+  const backLabel = isUnitLocked ? `Kembali ke ${getUnitLabel(businessUnit)}` : 'Kembali ke Beranda';
+
   if (isSuccess) {
     const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
     return (
       <div className="max-w-xl mx-auto space-y-5">
         <PageHeader
-          title="Catat Transaksi Kas"
-          description="Pencatatan uang masuk dan keluar kas operasional BUMDes Bogem serta unit-unit usaha desa"
-          backHref="/transaksi"
-          backLabel="Kembali ke Buku Kas"
+          title={pageTitle}
+          description={pageDesc}
+          backHref={backHref}
+          backLabel={backLabel}
         />
         <SuccessFeedback
           title={type === 'PEMASUKAN' ? 'Uang Masuk Berhasil Dicatat' : 'Uang Keluar Berhasil Dicatat'}
-          message="Data transaksi telah berhasil disimpan ke database dan siap diexport ke Excel kapan saja."
+          message="Data transaksi telah berhasil disimpan ke buku kas dan laporan keuangan."
           details={{
             type,
             amount,
@@ -272,20 +357,22 @@ function TambahTransaksiForm() {
             setAmount(0);
             setDescription('');
           }}
-          secondaryActionText="Buka Buku Kas & Transaksi"
-          secondaryActionHref="/transaksi"
+          secondaryActionText={isUnitLocked ? `Buka Buku Kas ${getUnitLabel(businessUnit)}` : 'Buka Seluruh Buku Kas'}
+          secondaryActionHref={isUnitLocked ? getUnitRoute(businessUnit) : '/transaksi'}
         />
       </div>
     );
   }
 
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
+
   return (
     <div className="max-w-xl mx-auto space-y-5">
       <PageHeader
-        title="Catat Transaksi Kas"
-        description="Pencatatan uang masuk dan keluar kas operasional BUMDes Bogem serta unit-unit usaha desa"
-        backHref="/transaksi"
-        backLabel="Kembali ke Buku Kas"
+        title={pageTitle}
+        description={pageDesc}
+        backHref={backHref}
+        backLabel={backLabel}
       />
 
       <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/80 shadow-subtle">
@@ -330,59 +417,108 @@ function TambahTransaksiForm() {
             </div>
           </div>
 
-          {/* Unit Usaha BUMDes */}
+          {/* Unit Usaha: Terkunci (jika dari unit usaha) atau Dropdown Bebas (jika dari Beranda) */}
           <div>
-            <label htmlFor="businessUnit" className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Unit Usaha BUMDes <span className="text-rose-500">*</span>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Unit Usaha BUMDes
             </label>
-            <select
-              id="businessUnit"
-              value={businessUnit}
-              onChange={(e) => handleUnitChange(e.target.value)}
-              className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
-            >
-              <option value="CATERING">Catering Desa</option>
-              <option value="RENTAL_MOLEN">Penyewaan Molen</option>
-              <option value="WIFI_DESA">WiFi Balai Desa</option>
-              <option value="PPOB">PPOB Loket Desa</option>
-              <option value="KETAHANAN_PANGAN">Ketahanan Pangan (Peternakan Sapi)</option>
-              <option value="UMUM">Umum / Kas Kantor BUMDes</option>
-            </select>
+            {isUnitLocked ? (
+              <div className="h-10 px-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                  {getUnitLabel(businessUnit)}
+                </span>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                  Unit Ini
+                </span>
+              </div>
+            ) : (
+              <select
+                id="businessUnit"
+                value={businessUnit}
+                onChange={(e) => handleUnitChange(e.target.value)}
+                className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
+              >
+                <option value="CATERING">Catering Desa</option>
+                <option value="RENTAL_MOLEN">Sewa Molen</option>
+                <option value="WIFI_DESA">WiFi Balai Desa</option>
+                <option value="PPOB">PPOB</option>
+                <option value="KETAHANAN_PANGAN">Peternakan Sapi</option>
+                <option value="UMUM">Operasional Kantor / Umum</option>
+              </select>
+            )}
           </div>
 
-          {/* Akun Akuntansi / Pos (Menyesuaikan Unit) */}
+          {/* Kategori / Pos Akun: Otomatis jika dari unit usaha atau Dropdown jika dari Beranda */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="account" className="block text-xs font-semibold text-slate-700">
-                Pos Akun Keuangan <span className="text-rose-500">*</span>
-              </label>
-              {isAdmin && (
-                <a
-                  href="/accounts"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+            {isUnitLocked ? (
+              unitSpecificAccounts.length <= 1 ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Kategori Transaksi
+                  </label>
+                  <div className="h-10 px-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                    <span className="text-xs sm:text-sm font-semibold text-slate-800">
+                      {selectedAccount?.name || unitSpecificAccounts[0]?.name || 'Otomatis'}
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Otomatis
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="account" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Kategori Transaksi <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    id="account"
+                    value={selectedAccountId}
+                    onChange={(e) => setSelectedAccountId(e.target.value)}
+                    className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
+                  >
+                    {unitSpecificAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="account" className="block text-xs font-semibold text-slate-700">
+                    Pos Akun Keuangan <span className="text-rose-500">*</span>
+                  </label>
+                  {isAdmin && (
+                    <a
+                      href="/accounts"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+                    >
+                      + Kelola Bagan Akun
+                    </a>
+                  )}
+                </div>
+                <select
+                  id="account"
+                  value={selectedAccountId}
+                  onChange={(e) => setSelectedAccountId(e.target.value)}
+                  className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
                 >
-                  + Kelola Bagan Akun
-                </a>
-              )}
-            </div>
-            <select
-              id="account"
-              value={selectedAccountId}
-              onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
-            >
-              {accountGroups.map((group) => (
-                <optgroup key={group.label} label={group.label} className="font-semibold text-slate-700">
-                  {group.accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id} className="font-normal text-slate-900">
-                      [{acc.code}] {acc.name}
-                    </option>
+                  {accountGroups.map((group) => (
+                    <optgroup key={group.label} label={group.label} className="font-semibold text-slate-700">
+                      {group.accounts.map((acc) => (
+                        <option key={acc.id} value={acc.id} className="font-normal text-slate-900">
+                          [{acc.code}] {acc.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
-                </optgroup>
-              ))}
-            </select>
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Nominal Uang & Metode Pembayaran */}
@@ -407,7 +543,7 @@ function TambahTransaksiForm() {
                 id="paymentMethod"
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value as 'TUNAI' | 'TRANSFER')}
-                className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
+                className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
               >
                 <option value="TUNAI">Kas Tunai</option>
                 <option value="TRANSFER">Transfer Bank / Non-Tunai</option>
@@ -433,7 +569,7 @@ function TambahTransaksiForm() {
           {/* Keterangan */}
           <div>
             <label htmlFor="description" className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Keterangan / Rincian <span className="text-rose-500">*</span>
+              Keterangan Transaksi <span className="text-rose-500">*</span>
             </label>
             <textarea
               id="description"
@@ -441,7 +577,7 @@ function TambahTransaksiForm() {
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Contoh: Beli ayam potong 15kg dan beras untuk pesanan hajatan"
+              placeholder="Contoh: Penerimaan pembayaran jasa atau belanja perlengkapan operasional"
               className="w-full p-3 text-xs sm:text-sm text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
             />
           </div>
@@ -452,7 +588,7 @@ function TambahTransaksiForm() {
               type="button"
               variant="secondary"
               size="normal"
-              onClick={() => router.push('/transaksi')}
+              onClick={() => router.push(backHref)}
               disabled={isLoading}
             >
               Batal

@@ -14,6 +14,8 @@ import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SuccessFeedback } from '@/components/ui/SuccessFeedback';
+import { invalidateClientDashboardCache } from '@/lib/client-cache';
+import { invalidateUnitLedgerCache } from '@/components/units/UnitCashLedger';
 
 interface AccountItem {
   id: string;
@@ -254,6 +256,8 @@ export default function EditTransaksiPage() {
       const json = await res.json();
 
       if (res.ok) {
+        invalidateClientDashboardCache();
+        invalidateUnitLedgerCache(businessUnit);
         setIsSuccess(true);
       } else {
         setError(json.error || 'Gagal memperbarui transaksi');
@@ -274,6 +278,8 @@ export default function EditTransaksiPage() {
       setIsDeleting(true);
       const res = await fetch(`/api/transaksi/${id}`, { method: 'DELETE' });
       if (res.ok) {
+        invalidateClientDashboardCache();
+        invalidateUnitLedgerCache(businessUnit);
         router.push('/transaksi');
       } else {
         const err = await res.json();
@@ -404,7 +410,7 @@ export default function EditTransaksiPage() {
               <option value="CATERING">Catering Desa</option>
               <option value="RENTAL_MOLEN">Penyewaan Molen</option>
               <option value="WIFI_DESA">WiFi Balai Desa</option>
-              <option value="PPOB">PPOB Loket Desa</option>
+              <option value="PPOB">PPOB</option>
               <option value="KETAHANAN_PANGAN">Ketahanan Pangan (Peternakan Sapi)</option>
               <option value="UMUM">Umum / Kas Kantor BUMDes</option>
             </select>
