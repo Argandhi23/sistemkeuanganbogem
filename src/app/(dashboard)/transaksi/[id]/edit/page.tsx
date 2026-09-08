@@ -27,6 +27,25 @@ interface AccountItem {
 
 let clientAccountsCache: AccountItem[] | null = null;
 
+const getUnitLabel = (unit: string) => {
+  switch (unit) {
+    case 'CATERING':
+      return 'Catering Desa';
+    case 'RENTAL_MOLEN':
+      return 'Sewa Molen';
+    case 'WIFI_DESA':
+      return 'WiFi Balai Desa';
+    case 'PPOB':
+      return 'PPOB';
+    case 'KETAHANAN_PANGAN':
+      return 'Peternakan Sapi';
+    case 'UMUM':
+      return 'Operasional Kantor / Umum';
+    default:
+      return unit;
+  }
+};
+
 export default function EditTransaksiPage() {
   const router = useRouter();
   const params = useParams();
@@ -63,54 +82,37 @@ export default function EditTransaksiPage() {
       (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
     );
 
-    const unitFiltered = nonCash.filter((a) => {
-      if (unit === 'UMUM') return a.businessUnit === 'UMUM';
-      if (a.businessUnit === unit) return true;
-      if (['5005', '5007', '6001', '6002'].includes(a.code)) return true;
-      return false;
-    });
-
     if (trxType === 'PEMASUKAN') {
-      return unitFiltered.filter(
-        (a) =>
-          a.category === 'PENDAPATAN' ||
-          a.category === 'MODAL' ||
-          a.category === 'KEWAJIBAN' ||
-          a.code === '1003'
-      );
+      return nonCash.filter((a) => {
+        if (a.businessUnit === unit && (a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.code.startsWith('40'))) {
+          return true;
+        }
+        if (['4002', '4101'].includes(a.code)) return true;
+        if (['3001', '3002', '3003', '2001', '2002'].includes(a.code)) return true;
+        if (a.code === '1003') return true;
+        return false;
+      });
     } else {
-      return unitFiltered.filter(
-        (a) =>
-          a.category === 'BEBAN_OPERASIONAL' ||
-          a.category === 'BEBAN_NON_OPERASIONAL' ||
-          a.code === '1004' ||
-          a.code === '1005' ||
-          a.code.startsWith('12') ||
-          a.category === 'KEWAJIBAN' ||
-          a.category === 'MODAL'
-      );
+      return nonCash.filter((a) => {
+        if (a.businessUnit === unit) return true;
+        if (['5005', '5006', '5007', '5008', '5009', '5010', '6001', '6002', '2001', '2002', '3004'].includes(a.code)) {
+          return true;
+        }
+        if (a.businessUnit === 'UMUM' && a.code.startsWith('12')) return true;
+        return false;
+      });
     }
   };
 
   const getPreferredAccount = (
     trxType: 'PEMASUKAN' | 'PENGELUARAN',
     unit: string,
-    validAccounts: AccountItem[]
+    groups: Array<{ label: string; accounts: AccountItem[] }>
   ) => {
-    if (validAccounts.length === 0) return '';
-    if (trxType === 'PEMASUKAN') {
-      const match =
-        validAccounts.find((a) => a.category === 'PENDAPATAN' && a.businessUnit === unit) ||
-        validAccounts.find((a) => a.category === 'PENDAPATAN') ||
-        validAccounts[0];
-      return match.id;
-    } else {
-      const match =
-        validAccounts.find((a) => a.category === 'BEBAN_OPERASIONAL' && a.businessUnit === unit) ||
-        validAccounts.find((a) => a.category === 'BEBAN_OPERASIONAL') ||
-        validAccounts[0];
-      return match.id;
-    }
+    if (groups.length === 0) return '';
+    const unitMatch = groups[0].accounts.find((a) => a.businessUnit === unit);
+    if (unitMatch) return unitMatch.id;
+    return groups[0].accounts[0]?.id || '';
   };
 
   useEffect(() => {
@@ -155,65 +157,121 @@ export default function EditTransaksiPage() {
       .finally(() => setIsFetching(false));
   }, [id]);
 
+  const applyInitialAccount = (
+    trxType: 'PEMASUKAN' | 'PENGELUARAN',
+    unit: string,
+    accList: AccountItem[]
+  ) => {
+    const valid = getValidAccountsForTypeAndUnit(trxType, unit, accList);
+    const groups = getAccountGroups(trxType, unit, valid);
+    const pref = getPreferredAccount(trxType, unit, groups);
+    setSelectedAccountId(pref);
+  };
+
   const handleTypeChange = (newType: 'PEMASUKAN' | 'PENGELUARAN') => {
     setType(newType);
-    const valid = getValidAccountsForTypeAndUnit(newType, businessUnit, accounts);
-    const pref = getPreferredAccount(newType, businessUnit, valid);
-    setSelectedAccountId(pref);
+    applyInitialAccount(newType, businessUnit, accounts);
   };
 
   const handleUnitChange = (newUnit: string) => {
     setBusinessUnit(newUnit);
-    const valid = getValidAccountsForTypeAndUnit(type, newUnit, accounts);
-    const pref = getPreferredAccount(type, newUnit, valid);
-    setSelectedAccountId(pref);
+    applyInitialAccount(type, newUnit, accounts);
   };
 
-  const filteredAccounts = getValidAccountsForTypeAndUnit(type, businessUnit, accounts);
+  const getAccountGroups = (
+    trxType: 'PEMASUKAN' | 'PENGELUARAN',
+    unit: string,
+    accList: AccountItem[]
+  ) => {
+    const unitLabel = getUnitLabel(unit);
 
-  const getAccountGroups = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
     if (trxType === 'PEMASUKAN') {
-      const usaha = accList.filter(
-        (a) => a.code.startsWith('40') || (a.category === 'PENDAPATAN' && !a.code.startsWith('41'))
+      const unitPendapatan = accList.filter(
+        (a) => a.businessUnit === unit && (a.category === 'PENDAPATAN' || a.code.startsWith('40'))
       );
-      const nonOperasional = accList.filter((a) => a.code.startsWith('41'));
-      const modalDanUtang = accList.filter((a) => a.category === 'MODAL' || a.category === 'KEWAJIBAN');
+      const nonOperasional = accList.filter(
+        (a) =>
+          !unitPendapatan.some((x) => x.id === a.id) &&
+          (a.code === '4002' || a.code === '4101' || a.category === 'PENDAPATAN')
+      );
+      const modalDanUtang = accList.filter(
+        (a) =>
+          a.category === 'MODAL' ||
+          a.category === 'KEWAJIBAN' ||
+          a.code.startsWith('2') ||
+          a.code.startsWith('3')
+      );
       const piutang = accList.filter((a) => a.code === '1003' || a.category === 'ASET');
 
       return [
-        { label: 'Pendapatan Usaha & Layanan', accounts: usaha },
-        { label: 'Pendapatan Non-Operasional & Bunga Bank', accounts: nonOperasional },
-        { label: 'Penerimaan Modal & Pinjaman', accounts: modalDanUtang },
-        { label: 'Pelunasan Piutang Usaha', accounts: piutang },
+        {
+          label: unit !== 'UMUM' ? `Pendapatan Utama - ${unitLabel}` : 'Pendapatan Usaha Utama',
+          accounts: unitPendapatan.length > 0 ? unitPendapatan : accList.filter((a) => a.code.startsWith('40')),
+        },
+        {
+          label: 'Pendapatan Operasional Lain & Bunga Bank',
+          accounts: nonOperasional,
+        },
+        {
+          label: 'Penerimaan Modal & Pinjaman',
+          accounts: modalDanUtang,
+        },
+        {
+          label: 'Pelunasan Piutang Usaha',
+          accounts: piutang,
+        },
       ].filter((g) => g.accounts.length > 0);
     } else {
-      const biayaLangsung = accList.filter((a) =>
-        ['5001', '5002', '5003', '5004', '5011', '5012', '5021', '5022', '5031', '5041', '5042', '5043', '1004', '1005'].includes(a.code)
+      const unitBiaya = accList.filter(
+        (a) =>
+          a.businessUnit === unit &&
+          (a.category === 'BEBAN_OPERASIONAL' ||
+            a.code.startsWith('5') ||
+            a.code === '1004' ||
+            a.code === '1005')
       );
       const operasionalUmum = accList.filter(
         (a) =>
-          ['5005', '5006', '5007', '5008', '5009', '5010'].includes(a.code) ||
-          (a.category === 'BEBAN_OPERASIONAL' && !biayaLangsung.map((x) => x.id).includes(a.id))
+          !unitBiaya.some((x) => x.id === a.id) &&
+          ['5005', '5006', '5007', '5008', '5009', '5010'].includes(a.code)
       );
-      const asetTetap = accList.filter((a) => a.code.startsWith('12'));
-      const utang = accList.filter((a) => a.category === 'KEWAJIBAN' || a.code.startsWith('2'));
-      const pades = accList.filter((a) => a.code === '3004' || a.category === 'MODAL');
-      const nonOpex = accList.filter(
-        (a) => a.category === 'BEBAN_NON_OPERASIONAL' || a.code.startsWith('6')
+      const asetTetap = accList.filter(
+        (a) =>
+          (a.code.startsWith('12') || (a.businessUnit === unit && a.category === 'ASET')) &&
+          !unitBiaya.some((x) => x.id === a.id)
+      );
+      const utangDanNonOpex = accList.filter(
+        (a) =>
+          a.category === 'KEWAJIBAN' ||
+          a.category === 'BEBAN_NON_OPERASIONAL' ||
+          a.code.startsWith('2') ||
+          a.code.startsWith('6') ||
+          a.code === '3004'
       );
 
       return [
-        { label: 'Biaya Pokok & Operasional Langsung', accounts: biayaLangsung },
-        { label: 'Beban Operasional & Distribusi Umum', accounts: operasionalUmum },
-        { label: 'Pengadaan Aset & Peralatan Usaha', accounts: asetTetap },
-        { label: 'Pembayaran Utang & Kewajiban', accounts: utang },
-        { label: 'Penyaluran Bagi Hasil PADes ke Desa', accounts: pades },
-        { label: 'Beban Administrasi Bank & Non-Operasional', accounts: nonOpex },
+        {
+          label: unit !== 'UMUM' ? `Biaya Pokok & Beban Utama - ${unitLabel}` : 'Beban Operasional Kantor',
+          accounts: unitBiaya.length > 0 ? unitBiaya : operasionalUmum,
+        },
+        {
+          label: 'Beban Operasional & Keperluan Usaha',
+          accounts: unitBiaya.length > 0 ? operasionalUmum : [],
+        },
+        {
+          label: 'Pengadaan Aset & Peralatan Usaha',
+          accounts: asetTetap,
+        },
+        {
+          label: 'Pembayaran Utang & Beban Bank',
+          accounts: utangDanNonOpex,
+        },
       ].filter((g) => g.accounts.length > 0);
     }
   };
 
-  const accountGroups = getAccountGroups(type, filteredAccounts);
+  const filteredAccounts = getValidAccountsForTypeAndUnit(type, businessUnit, accounts);
+  const accountGroups = getAccountGroups(type, businessUnit, filteredAccounts);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

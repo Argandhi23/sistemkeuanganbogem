@@ -97,78 +97,145 @@ function TambahTransaksiForm() {
       (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
     );
 
-    // Filter unit usaha
-    const unitFiltered = nonCash.filter((a) => {
-      if (unit === 'UMUM') {
-        return a.businessUnit === 'UMUM';
-      }
-      // Akun milik unit itu sendiri
-      if (a.businessUnit === unit) return true;
-      // Akun operasional penunjang umum
-      if (['5005', '5007', '6001', '6002'].includes(a.code)) return true;
-      return false;
-    });
-
     if (trxType === 'PEMASUKAN') {
-      return unitFiltered.filter(
-        (a) =>
-          a.category === 'PENDAPATAN' ||
-          a.category === 'MODAL' ||
-          a.category === 'KEWAJIBAN' ||
-          a.code === '1003'
-      );
+      return nonCash.filter((a) => {
+        // 1. Akun pendapatan unit itu sendiri
+        if (a.businessUnit === unit && (a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.code.startsWith('40'))) {
+          return true;
+        }
+        // 2. Akun pendapatan usaha lain & bunga bank umum yang bisa masuk ke unit
+        if (['4002', '4101'].includes(a.code)) return true;
+        // 3. Penerimaan modal & pinjaman
+        if (['3001', '3002', '3003', '2001', '2002'].includes(a.code)) return true;
+        // 4. Pelunasan piutang usaha
+        if (a.code === '1003') return true;
+        return false;
+      });
     } else {
-      return unitFiltered.filter(
-        (a) =>
-          a.category === 'BEBAN_OPERASIONAL' ||
-          a.category === 'BEBAN_NON_OPERASIONAL' ||
-          a.code === '1004' ||
-          a.code === '1005' ||
-          a.code.startsWith('12') ||
-          a.category === 'KEWAJIBAN' ||
-          a.category === 'MODAL'
-      );
+      return nonCash.filter((a) => {
+        // 1. Beban & persediaan/aset milik unit itu sendiri
+        if (a.businessUnit === unit) return true;
+        // 2. Beban operasional umum penunjang yang dapat dikeluarkan oleh unit mana pun
+        if (['5005', '5006', '5007', '5008', '5009', '5010', '6001', '6002', '2001', '2002', '3004'].includes(a.code)) {
+          return true;
+        }
+        // 3. Aset peralatan umum jika pengadaan dilakukan oleh unit
+        if (a.businessUnit === 'UMUM' && a.code.startsWith('12')) return true;
+        return false;
+      });
     }
   };
 
-  const getUnitSpecificAccounts = (
+  const getAccountGroups = (
     trxType: 'PEMASUKAN' | 'PENGELUARAN',
     unit: string,
     accList: AccountItem[]
   ) => {
-    return accList.filter((a) => {
-      if (a.businessUnit !== unit) return false;
-      if (trxType === 'PEMASUKAN') {
-        return a.category === 'PENDAPATAN' || a.category === 'MODAL';
-      } else {
-        return (
-          a.category === 'BEBAN_OPERASIONAL' ||
+    const unitLabel = getUnitLabel(unit);
+
+    if (trxType === 'PEMASUKAN') {
+      // 1. Pendapatan Utama Unit Usaha
+      const unitPendapatan = accList.filter(
+        (a) => a.businessUnit === unit && (a.category === 'PENDAPATAN' || a.code.startsWith('40'))
+      );
+      // 2. Pendapatan Operasional Lain & Bunga Bank
+      const nonOperasional = accList.filter(
+        (a) =>
+          !unitPendapatan.some((x) => x.id === a.id) &&
+          (a.code === '4002' || a.code === '4101' || a.category === 'PENDAPATAN')
+      );
+      // 3. Penerimaan Modal & Pinjaman
+      const modalDanUtang = accList.filter(
+        (a) =>
+          a.category === 'MODAL' ||
+          a.category === 'KEWAJIBAN' ||
+          a.code.startsWith('2') ||
+          a.code.startsWith('3')
+      );
+      // 4. Pelunasan Piutang
+      const piutang = accList.filter((a) => a.code === '1003' || a.category === 'ASET');
+
+      return [
+        {
+          label: unit !== 'UMUM' ? `Pendapatan Utama - ${unitLabel}` : 'Pendapatan Usaha Utama',
+          accounts: unitPendapatan.length > 0 ? unitPendapatan : accList.filter((a) => a.code.startsWith('40')),
+        },
+        {
+          label: 'Pendapatan Operasional Lain & Bunga Bank',
+          accounts: nonOperasional,
+        },
+        {
+          label: 'Penerimaan Modal & Pinjaman',
+          accounts: modalDanUtang,
+        },
+        {
+          label: 'Pelunasan Piutang Usaha',
+          accounts: piutang,
+        },
+      ].filter((g) => g.accounts.length > 0);
+    } else {
+      // 1. Biaya Pokok & Beban Utama Unit Usaha
+      const unitBiaya = accList.filter(
+        (a) =>
+          a.businessUnit === unit &&
+          (a.category === 'BEBAN_OPERASIONAL' ||
+            a.code.startsWith('5') ||
+            a.code === '1004' ||
+            a.code === '1005')
+      );
+      // 2. Beban Operasional & Keperluan Usaha
+      const operasionalUmum = accList.filter(
+        (a) =>
+          !unitBiaya.some((x) => x.id === a.id) &&
+          ['5005', '5006', '5007', '5008', '5009', '5010'].includes(a.code)
+      );
+      // 3. Pengadaan Aset & Peralatan
+      const asetTetap = accList.filter(
+        (a) =>
+          (a.code.startsWith('12') || (a.businessUnit === unit && a.category === 'ASET')) &&
+          !unitBiaya.some((x) => x.id === a.id)
+      );
+      // 4. Pembayaran Utang & Beban Bank
+      const utangDanNonOpex = accList.filter(
+        (a) =>
+          a.category === 'KEWAJIBAN' ||
           a.category === 'BEBAN_NON_OPERASIONAL' ||
-          a.code.startsWith('12')
-        );
-      }
-    });
+          a.code.startsWith('2') ||
+          a.code.startsWith('6') ||
+          a.code === '3004'
+      );
+
+      return [
+        {
+          label: unit !== 'UMUM' ? `Biaya Pokok & Beban Utama - ${unitLabel}` : 'Beban Operasional Kantor',
+          accounts: unitBiaya.length > 0 ? unitBiaya : operasionalUmum,
+        },
+        {
+          label: 'Beban Operasional & Keperluan Usaha',
+          accounts: unitBiaya.length > 0 ? operasionalUmum : [],
+        },
+        {
+          label: 'Pengadaan Aset & Peralatan Usaha',
+          accounts: asetTetap,
+        },
+        {
+          label: 'Pembayaran Utang & Beban Bank',
+          accounts: utangDanNonOpex,
+        },
+      ].filter((g) => g.accounts.length > 0);
+    }
   };
 
   const getPreferredAccount = (
     trxType: 'PEMASUKAN' | 'PENGELUARAN',
     unit: string,
-    validAccounts: AccountItem[]
+    groups: Array<{ label: string; accounts: AccountItem[] }>
   ) => {
-    if (validAccounts.length === 0) return '';
-    if (trxType === 'PEMASUKAN') {
-      const match =
-        validAccounts.find((a) => a.category === 'PENDAPATAN' && a.businessUnit === unit) ||
-        validAccounts.find((a) => a.category === 'PENDAPATAN') ||
-        validAccounts[0];
-      return match.id;
-    } else {
-      const match =
-        validAccounts.find((a) => a.category === 'BEBAN_OPERASIONAL' && a.businessUnit === unit) ||
-        validAccounts.find((a) => a.category === 'BEBAN_OPERASIONAL') ||
-        validAccounts[0];
-      return match.id;
-    }
+    if (groups.length === 0) return '';
+    // Prioritaskan akun milik unit di grup pertama
+    const unitMatch = groups[0].accounts.find((a) => a.businessUnit === unit);
+    if (unitMatch) return unitMatch.id;
+    return groups[0].accounts[0]?.id || '';
   };
 
   const applyInitialAccount = (
@@ -176,15 +243,9 @@ function TambahTransaksiForm() {
     unit: string,
     accList: AccountItem[]
   ) => {
-    if (isUnitLocked) {
-      const unitAccs = getUnitSpecificAccounts(trxType, unit, accList);
-      if (unitAccs.length > 0) {
-        setSelectedAccountId(unitAccs[0].id);
-        return;
-      }
-    }
     const valid = getValidAccountsForTypeAndUnit(trxType, unit, accList);
-    const pref = getPreferredAccount(trxType, unit, valid);
+    const groups = getAccountGroups(trxType, unit, valid);
+    const pref = getPreferredAccount(trxType, unit, groups);
     setSelectedAccountId(pref);
   };
 
@@ -212,57 +273,11 @@ function TambahTransaksiForm() {
 
   const handleUnitChange = (newUnit: string) => {
     setBusinessUnit(newUnit);
-    const valid = getValidAccountsForTypeAndUnit(type, newUnit, accounts);
-    const pref = getPreferredAccount(type, newUnit, valid);
-    setSelectedAccountId(pref);
+    applyInitialAccount(type, newUnit, accounts);
   };
 
   const filteredAccounts = getValidAccountsForTypeAndUnit(type, businessUnit, accounts);
-  const unitSpecificAccounts = getUnitSpecificAccounts(type, businessUnit, accounts);
-
-  const getAccountGroups = (trxType: 'PEMASUKAN' | 'PENGELUARAN', accList: AccountItem[]) => {
-    if (trxType === 'PEMASUKAN') {
-      const usaha = accList.filter(
-        (a) => a.code.startsWith('40') || (a.category === 'PENDAPATAN' && !a.code.startsWith('41'))
-      );
-      const nonOperasional = accList.filter((a) => a.code.startsWith('41'));
-      const modalDanUtang = accList.filter((a) => a.category === 'MODAL' || a.category === 'KEWAJIBAN');
-      const piutang = accList.filter((a) => a.code === '1003' || a.category === 'ASET');
-
-      return [
-        { label: 'Pendapatan Usaha & Layanan', accounts: usaha },
-        { label: 'Pendapatan Non-Operasional & Bunga Bank', accounts: nonOperasional },
-        { label: 'Penerimaan Modal & Pinjaman', accounts: modalDanUtang },
-        { label: 'Pelunasan Piutang Usaha', accounts: piutang },
-      ].filter((g) => g.accounts.length > 0);
-    } else {
-      const biayaLangsung = accList.filter((a) =>
-        ['5001', '5002', '5003', '5004', '5011', '5012', '5021', '5022', '5031', '5041', '5042', '5043', '1004', '1005'].includes(a.code)
-      );
-      const operasionalUmum = accList.filter(
-        (a) =>
-          ['5005', '5006', '5007', '5008', '5009', '5010'].includes(a.code) ||
-          (a.category === 'BEBAN_OPERASIONAL' && !biayaLangsung.map((x) => x.id).includes(a.id))
-      );
-      const asetTetap = accList.filter((a) => a.code.startsWith('12'));
-      const utang = accList.filter((a) => a.category === 'KEWAJIBAN' || a.code.startsWith('2'));
-      const pades = accList.filter((a) => a.code === '3004' || a.category === 'MODAL');
-      const nonOpex = accList.filter(
-        (a) => a.category === 'BEBAN_NON_OPERASIONAL' || a.code.startsWith('6')
-      );
-
-      return [
-        { label: 'Biaya Pokok & Operasional Langsung', accounts: biayaLangsung },
-        { label: 'Beban Operasional & Distribusi Umum', accounts: operasionalUmum },
-        { label: 'Pengadaan Aset & Peralatan Usaha', accounts: asetTetap },
-        { label: 'Pembayaran Utang & Kewajiban', accounts: utang },
-        { label: 'Penyaluran Bagi Hasil PADes ke Desa', accounts: pades },
-        { label: 'Beban Administrasi Bank & Non-Operasional', accounts: nonOpex },
-      ].filter((g) => g.accounts.length > 0);
-    }
-  };
-
-  const accountGroups = getAccountGroups(type, filteredAccounts);
+  const accountGroups = getAccountGroups(type, businessUnit, filteredAccounts);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -364,8 +379,6 @@ function TambahTransaksiForm() {
     );
   }
 
-  const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
-
   return (
     <div className="max-w-xl mx-auto space-y-5">
       <PageHeader
@@ -448,77 +461,39 @@ function TambahTransaksiForm() {
             )}
           </div>
 
-          {/* Kategori / Pos Akun: Otomatis jika dari unit usaha atau Dropdown jika dari Beranda */}
+          {/* Pos Akun Keuangan (Dengan Kode & Pilihan Lengkap Sesuai Unit) */}
           <div>
-            {isUnitLocked ? (
-              unitSpecificAccounts.length <= 1 ? (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Kategori Transaksi
-                  </label>
-                  <div className="h-10 px-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-                    <span className="text-xs sm:text-sm font-semibold text-slate-800">
-                      {selectedAccount?.name || unitSpecificAccounts[0]?.name || 'Otomatis'}
-                    </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      Otomatis
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label htmlFor="account" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    Kategori Transaksi <span className="text-rose-500">*</span>
-                  </label>
-                  <select
-                    id="account"
-                    value={selectedAccountId}
-                    onChange={(e) => setSelectedAccountId(e.target.value)}
-                    className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
-                  >
-                    {unitSpecificAccounts.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )
-            ) : (
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label htmlFor="account" className="block text-xs font-semibold text-slate-700">
-                    Pos Akun Keuangan <span className="text-rose-500">*</span>
-                  </label>
-                  {isAdmin && (
-                    <a
-                      href="/accounts"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
-                    >
-                      + Kelola Bagan Akun
-                    </a>
-                  )}
-                </div>
-                <select
-                  id="account"
-                  value={selectedAccountId}
-                  onChange={(e) => setSelectedAccountId(e.target.value)}
-                  className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="account" className="block text-xs font-semibold text-slate-700">
+                Pos Akun Keuangan {isUnitLocked && <span className="text-slate-500 font-normal">({getUnitLabel(businessUnit)})</span>} <span className="text-rose-500">*</span>
+              </label>
+              {isAdmin && (
+                <a
+                  href="/accounts"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
                 >
-                  {accountGroups.map((group) => (
-                    <optgroup key={group.label} label={group.label} className="font-semibold text-slate-700">
-                      {group.accounts.map((acc) => (
-                        <option key={acc.id} value={acc.id} className="font-normal text-slate-900">
-                          [{acc.code}] {acc.name}
-                        </option>
-                      ))}
-                    </optgroup>
+                  + Kelola Bagan Akun
+                </a>
+              )}
+            </div>
+            <select
+              id="account"
+              value={selectedAccountId}
+              onChange={(e) => setSelectedAccountId(e.target.value)}
+              className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all cursor-pointer"
+            >
+              {accountGroups.map((group) => (
+                <optgroup key={group.label} label={group.label} className="font-semibold text-slate-700">
+                  {group.accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id} className="font-normal text-slate-900">
+                      [{acc.code}] {acc.name}
+                    </option>
                   ))}
-                </select>
-              </div>
-            )}
+                </optgroup>
+              ))}
+            </select>
           </div>
 
           {/* Nominal Uang & Metode Pembayaran */}
