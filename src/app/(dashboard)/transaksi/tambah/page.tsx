@@ -102,7 +102,7 @@ const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
   CATERING: {
     PEMASUKAN: {
       primaryCodes: ['4001', '4003'], // Pendapatan Catering, Sewa Alat Catering
-      secondaryCodes: ['4004', '4002'], // Ongkir Pengantaran, Pendapatan Usaha Lain-lain
+      secondaryCodes: ['4004', '4002', '2001', '2002'], // Ongkir Pengantaran, Pendapatan Lain-lain, Utang/Pinjaman
     },
     PENGELUARAN: {
       primaryCodes: ['5001', '5002', '5003', '5004', '1004', '1005'], // Bahan Baku, Box Snack, Upah Masak, Gas Elpiji Dapur, Persediaan, Perlengkapan
@@ -141,11 +141,10 @@ function TambahTransaksiForm() {
   const isAdmin = session?.user?.role === 'ADMIN';
   const isCateringRole = session?.user?.role === 'CATERING';
 
-  // Deteksi jika dibuka dari unit usaha tertentu vs dari Beranda (Role CATERING dikunci mutlak ke CATERING)
   const queryUnit = isCateringRole ? 'CATERING' : (searchParams.get('businessUnit') || searchParams.get('unit'));
   const isUnitLocked = isCateringRole || Boolean(searchParams.get('businessUnit') || searchParams.get('unit'));
   const initialUnit = isCateringRole ? 'CATERING' : (queryUnit || 'CATERING');
-  const initialType = searchParams.get('type') === 'PENGELUARAN' ? 'PENGELUARAN' : 'PEMASUKAN';
+  const initialType = (searchParams.get('type') as 'PEMASUKAN' | 'PENGELUARAN') || 'PEMASUKAN';
 
   const isSubmittingRef = useRef(false);
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>(initialType);
@@ -173,6 +172,41 @@ function TambahTransaksiForm() {
     );
 
     if (trxType === 'PEMASUKAN') {
+      if (unit === 'CATERING') {
+        const primary = nonCash.filter((a) => cfg.PEMASUKAN.primaryCodes.includes(a.code));
+        const secondary = nonCash.filter(
+          (a) => cfg.PEMASUKAN.secondaryCodes?.includes(a.code) && a.category === 'PENDAPATAN'
+        );
+        const liabilitiesAndEquity = nonCash.filter(
+          (a) =>
+            (a.businessUnit === 'CATERING' || a.businessUnit === 'UMUM') &&
+            (a.category === 'KEWAJIBAN' || a.category === 'MODAL') &&
+            (cfg.PEMASUKAN.secondaryCodes?.includes(a.code) || a.code.startsWith('2') || a.code.startsWith('3'))
+        );
+        const customIncome = nonCash.filter(
+          (a) =>
+            a.businessUnit === 'CATERING' &&
+            a.category === 'PENDAPATAN' &&
+            !primary.some((x) => x.id === a.id) &&
+            !secondary.some((x) => x.id === a.id)
+        );
+
+        return [
+          {
+            label: 'Pendapatan Usaha Catering',
+            accounts: [...primary, ...customIncome],
+          },
+          {
+            label: 'Pendapatan Lain & Ongkir Catering',
+            accounts: secondary,
+          },
+          {
+            label: 'Kewajiban & Penerimaan Pinjaman/Utang Catering',
+            accounts: liabilitiesAndEquity,
+          },
+        ].filter((g) => g.accounts.length > 0);
+      }
+
       const primary = nonCash.filter((a) => cfg.PEMASUKAN.primaryCodes.includes(a.code));
       const secondary = nonCash.filter((a) => cfg.PEMASUKAN.secondaryCodes?.includes(a.code));
       const custom = nonCash.filter(
@@ -213,22 +247,17 @@ function TambahTransaksiForm() {
             (a.code.startsWith('505') || a.code.startsWith('6')) &&
             !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
         );
+        const liabilities = nonCash.filter(
+          (a) =>
+            (a.businessUnit === 'CATERING' || a.businessUnit === 'UMUM') &&
+            (a.category === 'KEWAJIBAN' || a.code.startsWith('2')) &&
+            a.code !== '1003'
+        );
         const asset = nonCash.filter(
           (a) =>
             ((a.businessUnit === 'CATERING' && a.category === 'ASET') || cfg.PENGELUARAN.assetCodes?.includes(a.code)) &&
             !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
             !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
-            a.code !== '1003'
-        );
-        const customOther = nonCash.filter(
-          (a) =>
-            a.businessUnit === 'CATERING' &&
-            (a.category === 'KEWAJIBAN' || a.category === 'MODAL' || a.category === 'BEBAN_NON_OPERASIONAL') &&
-            !primary.some((x) => x.id === a.id) &&
-            !secondary.some((x) => x.id === a.id) &&
-            !customKitchen.some((x) => x.id === a.id) &&
-            !customOffice.some((x) => x.id === a.id) &&
-            !asset.some((x) => x.id === a.id) &&
             a.code !== '1003'
         );
 
@@ -239,7 +268,11 @@ function TambahTransaksiForm() {
           },
           {
             label: 'Operasional Kantor Khusus Catering (ATK, Komunikasi, Kebersihan, Transport)',
-            accounts: [...secondary, ...customOffice, ...customOther],
+            accounts: [...secondary, ...customOffice],
+          },
+          {
+            label: 'Kewajiban / Pembayaran Utang Usaha Catering (Supplier & Pinjaman)',
+            accounts: liabilities,
           },
           {
             label: 'Pengadaan Aset & Peralatan Catering',

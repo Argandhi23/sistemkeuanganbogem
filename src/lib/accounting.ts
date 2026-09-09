@@ -1165,10 +1165,10 @@ export async function getBalanceSheet(
 
   // 3. KEWAJIBAN (LIABILITAS)
   const currentLiabAccounts = accounts.filter(
-    (a) => a.category === AccountCategory.KEWAJIBAN && !a.code.startsWith('22')
+    (a) => a.category === AccountCategory.KEWAJIBAN && !a.code.startsWith('22') && isAccountPermittedForUnit(a)
   );
   const longLiabAccounts = accounts.filter(
-    (a) => a.category === AccountCategory.KEWAJIBAN && a.code.startsWith('22')
+    (a) => a.category === AccountCategory.KEWAJIBAN && a.code.startsWith('22') && isAccountPermittedForUnit(a)
   );
 
   const currentLiabItems: BalanceSheetItem[] = currentLiabAccounts.map((acc) => ({
@@ -1190,7 +1190,9 @@ export async function getBalanceSheet(
   const totalLiabilities = totalCurrentLiabilities + totalLongTermLiabilities;
 
   // 4. EKUITAS (MODAL)
-  const capitalAccounts = accounts.filter((a) => a.category === AccountCategory.MODAL);
+  const capitalAccounts = accounts.filter(
+    (a) => a.category === AccountCategory.MODAL && isAccountPermittedForUnit(a)
+  );
   const capitalItems: BalanceSheetItem[] = [];
 
   for (const acc of capitalAccounts) {

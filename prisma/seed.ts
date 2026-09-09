@@ -63,8 +63,8 @@ async function main() {
     { code: '1209', name: 'Akumulasi Penyusutan Peralatan', category: AccountCategory.ASET, businessUnit: BusinessUnit.UMUM },
 
     // 2xxx - KEWAJIBAN (UTANG)
-    { code: '2001', name: 'Utang Usaha / Supplier', category: AccountCategory.KEWAJIBAN, businessUnit: BusinessUnit.UMUM },
-    { code: '2002', name: 'Utang Pinjaman (Bank / Pihak Ketiga)', category: AccountCategory.KEWAJIBAN, businessUnit: BusinessUnit.UMUM },
+    { code: '2001', name: 'Utang Usaha / Supplier', category: AccountCategory.KEWAJIBAN, businessUnit: BusinessUnit.CATERING },
+    { code: '2002', name: 'Utang Pinjaman (Bank / Pihak Ketiga)', category: AccountCategory.KEWAJIBAN, businessUnit: BusinessUnit.CATERING },
 
     // 3xxx - EKUITAS (MODAL)
     { code: '3001', name: 'Modal Usaha / Modal Awal BUMDes', category: AccountCategory.MODAL, businessUnit: BusinessUnit.UMUM },

@@ -17,7 +17,6 @@ import {
   ShieldCheck,
   Scale,
   Utensils,
-  Building2,
   Info,
   Sparkles,
 } from 'lucide-react';
@@ -57,7 +56,7 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-blue-50',
     text: 'text-blue-800',
     border: 'border-blue-200',
-    desc: 'Kas tunai, bank, piutang, persediaan bahan baku (1004), perlengkapan (1005), dan peralatan catering (1201).',
+    desc: 'Kas tunai, bank operasional, piutang usaha, persediaan bahan baku (1004), perlengkapan kemasan (1005), dan peralatan catering (1204).',
   },
   KEWAJIBAN: {
     label: 'Kewajiban (Utang)',
@@ -65,7 +64,7 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-amber-50',
     text: 'text-amber-800',
     border: 'border-amber-200',
-    desc: 'Utang usaha, utang supplier belanja bahan, dan kewajiban operasional.',
+    desc: 'Utang usaha belanja bahan dapur catering, utang supplier bumbu & beras, kewajiban operasional, dan pinjaman modal kerja.',
   },
   MODAL: {
     label: 'Ekuitas (Modal)',
@@ -73,7 +72,7 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-indigo-50',
     text: 'text-indigo-800',
     border: 'border-indigo-200',
-    desc: 'Penyertaan modal awal desa (APBDes), laba ditahan, dan cadangan ekuitas unit usaha.',
+    desc: 'Penyertaan modal awal desa (APBDes), laba ditahan operasional, dan cadangan ekuitas unit usaha.',
   },
   PENDAPATAN: {
     label: 'Pendapatan Usaha',
@@ -81,7 +80,7 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-emerald-50',
     text: 'text-emerald-800',
     border: 'border-emerald-200',
-    desc: 'Penjualan catering harian, box, prasmanan, snack, dan pendapatan usaha lain.',
+    desc: 'Penjualan nasi box, prasmanan hajatan, snack rapat, sewa peralatan catering, dan ongkir pengantaran.',
   },
   BEBAN_OPERASIONAL: {
     label: 'Beban Operasional',
@@ -89,7 +88,7 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-rose-50',
     text: 'text-rose-800',
     border: 'border-rose-200',
-    desc: 'Bahan baku (5001), perlengkapan & kemasan (5002), upah masak (5003), pemeliharaan peralatan (5004), operasional kantor (5051), logistik (5052).',
+    desc: 'Bahan baku (5001), perlengkapan kemasan (5002), upah masak (5003), gas elpiji/listrik dapur (5004/5006), operasional kantor (5051), logistik (5052).',
   },
   BEBAN_NON_OPERASIONAL: {
     label: 'Beban Non-Operasional',
@@ -97,33 +96,99 @@ const CATEGORY_METADATA: Record<
     bg: 'bg-slate-100',
     text: 'text-slate-800',
     border: 'border-slate-300',
-    desc: 'Biaya administrasi bank, transfer, dan beban non-operasional lainnya.',
+    desc: 'Biaya administrasi bank, biaya transaksi digital, dan beban non-operasional lainnya.',
   },
 };
+
+const BUSINESS_UNIT_OPTIONS: Array<{
+  id: BusinessUnit;
+  label: string;
+  badge: string;
+  badgeActive: string;
+  icon: string;
+  desc: string;
+}> = [
+  {
+    id: 'CATERING',
+    label: 'Catering Desa',
+    badge: 'bg-amber-50 text-amber-800 border-amber-200',
+    badgeActive: 'bg-amber-600 text-white',
+    icon: '🍳',
+    desc: 'Unit usaha kuliner, pesanan nasi box, prasmanan, snack rapat & persewaan alat dapur',
+  },
+  {
+    id: 'RENTAL_MOLEN',
+    label: 'Sewa Molen',
+    badge: 'bg-orange-50 text-orange-800 border-orange-200',
+    badgeActive: 'bg-orange-600 text-white',
+    icon: '🏗️',
+    desc: 'Penyewaan molen cor beton dan alat pertukangan pembangunan warga',
+  },
+  {
+    id: 'WIFI_DESA',
+    label: 'WiFi Balai Desa',
+    badge: 'bg-blue-50 text-blue-800 border-blue-200',
+    badgeActive: 'bg-blue-600 text-white',
+    icon: '📶',
+    desc: 'Layanan jaringan internet warga, voucher wifi balai desa, dan iuran bulanan',
+  },
+  {
+    id: 'PPOB',
+    label: 'PPOB Loket Desa',
+    badge: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    badgeActive: 'bg-emerald-600 text-white',
+    icon: '⚡',
+    desc: 'Loket pembayaran tagihan PLN, token listrik, PDAM, pulsa & transfer antarbank',
+  },
+  {
+    id: 'KETAHANAN_PANGAN',
+    label: 'Ketahanan Pangan',
+    badge: 'bg-teal-50 text-teal-800 border-teal-200',
+    badgeActive: 'bg-teal-600 text-white',
+    icon: '🐄',
+    desc: 'Peternakan sapi penggemukan, pembibitan & produksi pupuk organik desa',
+  },
+  {
+    id: 'UMUM',
+    label: 'BUMDes Umum',
+    badge: 'bg-slate-100 text-slate-800 border-slate-200',
+    badgeActive: 'bg-slate-900 text-white',
+    icon: '🏢',
+    desc: 'Manajemen kantor pusat BUMDes, rekening penampung utama & pos modal bersama',
+  },
+];
 
 const CATERING_PRESETS = [
   {
     id: 'KITCHEN',
-    title: '🍳 Biaya Pokok Dapur / HPP',
+    title: '🍳 Biaya Pokok Dapur (HPP)',
     category: 'BEBAN_OPERASIONAL' as AccountCategory,
     prefix: '500x',
-    desc: 'Bahan baku mentah, bumbu, minyak, beras, kemasan box snack, gas elpiji dapur, dan upah masak harian.',
-    example: 'Beban Sewa Alat Pemanas Prasmanan',
+    desc: 'Bahan baku mentah, bumbu, beras, daging, minyak, kemasan box snack, gas elpiji & upah juru masak harian.',
+    example: 'Beban Bumbu & Bahan Pelengkap Masak',
   },
   {
     id: 'OFFICE',
-    title: '🏢 Beban Operasional Kantor Catering',
+    title: '🏢 Operasional Kantor Catering',
     category: 'BEBAN_OPERASIONAL' as AccountCategory,
     prefix: '505x',
-    desc: 'Nota struk pesanan, pulsa/kuota chat WhatsApp pelanggan, administrasi kantor, sabun cuci, transport/bensin kurir.',
+    desc: 'Nota struk pesanan, pulsa WhatsApp pelanggan, kebersihan dapur, ATK nota, dan bensin kurir pengantar.',
     example: 'Beban Promosi & Brosur Cetak Catering',
+  },
+  {
+    id: 'LIABILITY',
+    title: '🤝 Utang Usaha & Supplier Catering',
+    category: 'KEWAJIBAN' as AccountCategory,
+    prefix: '200x',
+    desc: 'Utang belanja bahan baku ke supplier/pasar, utang kemasan box, atau pinjaman modal kerja khusus catering.',
+    example: 'Utang Supplier Beras & Daging Catering',
   },
   {
     id: 'REVENUE',
     title: '💰 Pendapatan Usaha Catering',
     category: 'PENDAPATAN' as AccountCategory,
     prefix: '400x',
-    desc: 'Penerimaan pesanan nasi box, prasmanan hajatan, pesanan snack rapat, sewa alat catering, atau ongkir pengantaran.',
+    desc: 'Penerimaan pesanan nasi box instansi, prasmanan hajatan warga, snack box rapat, dan sewa alat katering.',
     example: 'Pendapatan Pesanan Snack Box Instansi',
   },
   {
@@ -131,7 +196,7 @@ const CATERING_PRESETS = [
     title: '📦 Aset Peralatan Catering',
     category: 'ASET' as AccountCategory,
     prefix: '120x',
-    desc: 'Peralatan masak bernilai tetap: kompor gas komersil, wajan besar, chiller/freezer, motor pengantar.',
+    desc: 'Peralatan masak bernilai tetap: kompor gas komersil, wajan besar, chiller pendingin, dan motor pengantar.',
     example: 'Aset Kompor Gas High Pressure',
   },
 ];
@@ -142,7 +207,7 @@ export default function AccountsPage() {
 
   const [accounts, setAccounts] = useState<AccountItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedUnitScope, setSelectedUnitScope] = useState<'ALL' | 'CATERING' | 'UMUM'>('ALL');
+  const [selectedUnitScope, setSelectedUnitScope] = useState<BusinessUnit | 'ALL'>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('SEMUA');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -202,50 +267,111 @@ export default function AccountsPage() {
     setTimeout(() => setFeedback(null), 4000);
   };
 
-  // Helper: Dapatkan nomor kode rekomendasi berikutnya
+  // Helper: Dapatkan nomor kode rekomendasi berikutnya secara cerdas sesuai prinsip akuntansi
   const getNextAvailableCode = useCallback(
-    (presetId: string, currentAccounts: AccountItem[]) => {
-      let rangeMin = 5051;
-      let rangeMax = 5099;
+    (unit: BusinessUnit, cat: AccountCategory, currentAccounts: AccountItem[]) => {
+      let minRange = 1001;
+      let maxRange = 1999;
+      let defaultStart = 1006;
 
-      if (presetId === 'KITCHEN') {
-        rangeMin = 5001;
-        rangeMax = 5049;
-      } else if (presetId === 'OFFICE') {
-        rangeMin = 5051;
-        rangeMax = 5099;
-      } else if (presetId === 'REVENUE') {
-        rangeMin = 4001;
-        rangeMax = 4009;
-      } else if (presetId === 'ASSET') {
-        rangeMin = 1201;
-        rangeMax = 1205;
+      if (cat === 'ASET') {
+        minRange = 1001;
+        maxRange = 1999;
+        defaultStart = 1006;
+      } else if (cat === 'KEWAJIBAN') {
+        minRange = 2001;
+        maxRange = 2999;
+        defaultStart = 2003;
+      } else if (cat === 'MODAL') {
+        minRange = 3001;
+        maxRange = 3999;
+        defaultStart = 3005;
+      } else if (cat === 'PENDAPATAN') {
+        if (unit === 'CATERING') {
+          minRange = 4001;
+          maxRange = 4009;
+          defaultStart = 4005;
+        } else if (unit === 'RENTAL_MOLEN') {
+          minRange = 4010;
+          maxRange = 4019;
+          defaultStart = 4011;
+        } else if (unit === 'WIFI_DESA') {
+          minRange = 4020;
+          maxRange = 4029;
+          defaultStart = 4021;
+        } else if (unit === 'PPOB') {
+          minRange = 4030;
+          maxRange = 4039;
+          defaultStart = 4031;
+        } else if (unit === 'KETAHANAN_PANGAN') {
+          minRange = 4040;
+          maxRange = 4049;
+          defaultStart = 4041;
+        } else {
+          minRange = 4101;
+          maxRange = 4999;
+          defaultStart = 4102;
+        }
+      } else if (cat === 'BEBAN_OPERASIONAL') {
+        if (unit === 'CATERING') {
+          minRange = 5051;
+          maxRange = 5099;
+          defaultStart = 5053;
+        } else if (unit === 'RENTAL_MOLEN') {
+          minRange = 5011;
+          maxRange = 5019;
+          defaultStart = 5013;
+        } else if (unit === 'WIFI_DESA') {
+          minRange = 5021;
+          maxRange = 5029;
+          defaultStart = 5023;
+        } else if (unit === 'PPOB') {
+          minRange = 5031;
+          maxRange = 5039;
+          defaultStart = 5032;
+        } else if (unit === 'KETAHANAN_PANGAN') {
+          minRange = 5041;
+          maxRange = 5049;
+          defaultStart = 5044;
+        } else {
+          minRange = 5001;
+          maxRange = 5099;
+          defaultStart = 5011;
+        }
+      } else if (cat === 'BEBAN_NON_OPERASIONAL') {
+        minRange = 6001;
+        maxRange = 6999;
+        defaultStart = 6003;
       }
 
-      const existingCodes = currentAccounts
-        .map((a) => parseInt(a.code, 10))
-        .filter((num) => !isNaN(num) && num >= rangeMin && num <= rangeMax);
+      const existingCodes = new Set(
+        currentAccounts.map((a) => parseInt(a.code, 10)).filter((n) => !isNaN(n))
+      );
 
-      if (existingCodes.length === 0) return rangeMin.toString();
-      const maxCode = Math.max(...existingCodes);
-      return (maxCode + 1).toString();
+      for (let c = defaultStart; c <= maxRange; c++) {
+        if (!existingCodes.has(c)) return c.toString();
+      }
+      for (let c = minRange; c <= maxRange; c++) {
+        if (!existingCodes.has(c)) return c.toString();
+      }
+      return defaultStart.toString();
     },
     []
   );
 
   // Open Create Modal
-  const handleOpenCreate = (targetUnit: BusinessUnit = 'CATERING', presetType = 'OFFICE') => {
-    const nextCode = targetUnit === 'CATERING' ? getNextAvailableCode(presetType, accounts) : '';
-    const preset = CATERING_PRESETS.find((p) => p.id === presetType) || CATERING_PRESETS[1];
+  const handleOpenCreate = (targetUnit: BusinessUnit = 'CATERING', targetCategory?: AccountCategory) => {
+    const cat = targetCategory || (targetUnit === 'CATERING' ? 'BEBAN_OPERASIONAL' : 'BEBAN_OPERASIONAL');
+    const nextCode = getNextAvailableCode(targetUnit, cat, accounts);
 
     setFormData({
       code: nextCode,
       name: '',
-      category: targetUnit === 'CATERING' ? preset.category : 'BEBAN_OPERASIONAL',
+      category: cat,
       businessUnit: targetUnit,
       isActive: true,
     });
-    setSelectedCateringPreset(presetType);
+    setSelectedCateringPreset('OFFICE');
     setIsEditing(false);
     setEditingId(null);
     setFormError(null);
@@ -272,7 +398,7 @@ export default function AccountsPage() {
     setSelectedCateringPreset(presetId);
     const preset = CATERING_PRESETS.find((p) => p.id === presetId);
     if (preset) {
-      const nextCode = getNextAvailableCode(presetId, accounts);
+      const nextCode = getNextAvailableCode('CATERING', preset.category, accounts);
       setFormData((prev) => ({
         ...prev,
         category: preset.category,
@@ -280,6 +406,24 @@ export default function AccountsPage() {
         code: nextCode,
       }));
     }
+  };
+
+  const handleUnitChange = (unit: BusinessUnit) => {
+    const nextCode = getNextAvailableCode(unit, formData.category, accounts);
+    setFormData((prev) => ({
+      ...prev,
+      businessUnit: unit,
+      code: nextCode,
+    }));
+  };
+
+  const handleCategoryChange = (cat: AccountCategory) => {
+    const nextCode = getNextAvailableCode(formData.businessUnit, cat, accounts);
+    setFormData((prev) => ({
+      ...prev,
+      category: cat,
+      code: nextCode,
+    }));
   };
 
   // Handle Form Submit (Create / Edit)
@@ -366,8 +510,7 @@ export default function AccountsPage() {
   const filteredAccounts = useMemo(() => {
     return accounts.filter((acc) => {
       // Filter Scope Unit
-      if (selectedUnitScope === 'CATERING' && acc.businessUnit !== 'CATERING') return false;
-      if (selectedUnitScope === 'UMUM' && acc.businessUnit === 'CATERING') return false;
+      if (selectedUnitScope !== 'ALL' && acc.businessUnit !== selectedUnitScope) return false;
 
       // Filter Kategori
       const matchCat = selectedCategory === 'SEMUA' || acc.category === selectedCategory;
@@ -383,9 +526,13 @@ export default function AccountsPage() {
     });
   }, [accounts, selectedUnitScope, selectedCategory, searchQuery]);
 
-  // Statistics
-  const cateringCount = useMemo(() => {
-    return accounts.filter((a) => a.businessUnit === 'CATERING').length;
+  // Unit Counts
+  const unitCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: accounts.length };
+    for (const a of accounts) {
+      counts[a.businessUnit] = (counts[a.businessUnit] || 0) + 1;
+    }
+    return counts;
   }, [accounts]);
 
   const stats = useMemo(() => {
@@ -405,25 +552,27 @@ export default function AccountsPage() {
     <div className="space-y-6 max-w-6xl mx-auto pb-10">
       <PageHeader
         title="Master Kode Akun Keuangan"
-        description="Kelola pos akun akuntansi standar (SAK EMKM) BUMDes Bogem dan pengaturan kode akun khusus Catering"
+        description="Kelola pos akun akuntansi standar (SAK EMKM) BUMDes Bogem fleksibel per unit usaha & akun khusus Catering"
         action={
           isAdmin && (
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => handleOpenCreate('CATERING', 'OFFICE')}
+                onClick={() => handleOpenCreate('CATERING')}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold shadow-subtle transition-all"
               >
                 <Utensils className="w-3.5 h-3.5 text-amber-700" />
-                <span>+ Akun Khusus Catering</span>
+                <span>+ Akun Catering</span>
               </button>
               <BigButton
                 variant="primary"
                 size="normal"
-                onClick={() => handleOpenCreate('UMUM')}
+                onClick={() => handleOpenCreate(selectedUnitScope !== 'ALL' ? selectedUnitScope : 'UMUM')}
                 icon={<Plus className="w-4 h-4" />}
               >
-                Tambah Akun Umum
+                {selectedUnitScope !== 'ALL' && selectedUnitScope !== 'CATERING'
+                  ? `+ Akun ${BUSINESS_UNIT_OPTIONS.find((u) => u.id === selectedUnitScope)?.label || 'Unit'}`
+                  : 'Tambah Akun Baru'}
               </BigButton>
             </div>
           )
@@ -452,56 +601,52 @@ export default function AccountsPage() {
         </div>
       )}
 
-      {/* Tab Filter Unit Usaha (Scope) */}
-      <div className="flex items-center justify-between gap-3 bg-white p-2 rounded-2xl border border-slate-200/90 shadow-subtle">
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+      {/* Tab Filter Unit Usaha (Scope Lengkap Semua 6 Unit BUMDes) */}
+      <div className="bg-white p-2 rounded-2xl border border-slate-200/90 shadow-subtle">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
           <button
             onClick={() => setSelectedUnitScope('ALL')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
               selectedUnitScope === 'ALL'
                 ? 'bg-slate-900 text-white shadow-subtle'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            Semua Unit ({accounts.length})
+            <span>Semua Unit</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${selectedUnitScope === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'}`}>
+              {accounts.length}
+            </span>
           </button>
 
-          <button
-            onClick={() => setSelectedUnitScope('CATERING')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-              selectedUnitScope === 'CATERING'
-                ? 'bg-amber-600 text-white shadow-subtle'
-                : 'text-amber-800 bg-amber-50 hover:bg-amber-100/80 border border-amber-200/80'
-            }`}
-          >
-            <Utensils className="w-3.5 h-3.5" />
-            <span>Khusus Catering Desa ({cateringCount})</span>
-          </button>
-
-          <button
-            onClick={() => setSelectedUnitScope('UMUM')}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
-              selectedUnitScope === 'UMUM'
-                ? 'bg-slate-900 text-white shadow-subtle'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            BUMDes Umum & Unit Lain ({accounts.length - cateringCount})
-          </button>
+          {BUSINESS_UNIT_OPTIONS.map((unit) => {
+            const isSelected = selectedUnitScope === unit.id;
+            const count = unitCounts[unit.id] || 0;
+            return (
+              <button
+                key={unit.id}
+                onClick={() => setSelectedUnitScope(unit.id)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                  isSelected
+                    ? `${unit.badgeActive} shadow-subtle`
+                    : 'text-slate-700 hover:bg-slate-100 border border-transparent'
+                }`}
+              >
+                <span>{unit.icon}</span>
+                <span>{unit.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                    isSelected ? 'bg-black/20 text-white' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
-
-        {selectedUnitScope === 'CATERING' && isAdmin && (
-          <button
-            onClick={() => handleOpenCreate('CATERING', 'OFFICE')}
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah Pos Akun Catering</span>
-          </button>
-        )}
       </div>
 
-      {/* Info Banner Alur CRUD Khusus Catering untuk Super Admin */}
+      {/* Info Banner Alur CRUD Khusus Catering untuk Admin */}
       {selectedUnitScope === 'CATERING' && (
         <div className="p-4 bg-amber-50/90 border border-amber-200/90 rounded-2xl flex items-start gap-3 shadow-subtle">
           <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -509,11 +654,11 @@ export default function AccountsPage() {
           </div>
           <div className="text-xs text-amber-900 space-y-1">
             <p className="font-bold">
-              💡 Rekomendasi Alur Pengaturan Kode Akun Catering untuk Super Admin:
+              💡 Bagan Akun Unit Usaha Catering Desa (Fleksibel Sesuai Kebutuhan):
             </p>
             <p className="leading-relaxed text-amber-800">
-              Pengurus Catering (Ibu Sri) dapat langsung menggunakan pos akun yang dibuat di sini saat mencatat transaksi.
-              Gunakan awalan <strong>500x</strong> untuk <em>Biaya Pokok Dapur</em> (bahan baku, upah masak, gas), awalan <strong>505x</strong> untuk <em>Operasional Kantor Catering</em> (ATK, nota, pulsa, transport), dan <strong>400x</strong> untuk <em>Pendapatan Pesanan</em>.
+              Admin dapat bebas menambah dan mengedit kode akun untuk Catering:
+              gunakan <strong>2xxx</strong> untuk <em>Utang Usaha & Supplier Bahan Pokok</em>, <strong>500x</strong> untuk <em>Biaya Pokok Dapur (HPP)</em>, <strong>505x</strong> untuk <em>Operasional Kantor Catering</em>, <strong>400x</strong> untuk <em>Pendapatan Pesanan</em>, dan <strong>120x</strong> untuk <em>Aset Peralatan</em>.
             </p>
           </div>
         </div>
@@ -671,8 +816,8 @@ export default function AccountsPage() {
                 <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-600 uppercase tracking-wider">
                   <th className="py-3 px-4 w-28">Kode Akun</th>
                   <th className="py-3 px-4">Nama Pos Akun Keuangan</th>
-                  <th className="py-3 px-4 w-36">Unit Bisnis</th>
-                  <th className="py-3 px-4 w-40">Kategori Akuntansi</th>
+                  <th className="py-3 px-4 w-40">Unit Bisnis</th>
+                  <th className="py-3 px-4 w-44">Kategori Akuntansi</th>
                   <th className="py-3 px-4 text-center w-28">Riwayat Trx</th>
                   <th className="py-3 px-4 text-center w-24">Status</th>
                   {isAdmin && <th className="py-3 px-4 text-right w-24">Aksi</th>}
@@ -682,7 +827,7 @@ export default function AccountsPage() {
                 {filteredAccounts.map((acc) => {
                   const meta = CATEGORY_METADATA[acc.category] || CATEGORY_METADATA.PENDAPATAN;
                   const trxCount = acc._count?.transactions ?? 0;
-                  const isCatering = acc.businessUnit === 'CATERING';
+                  const unitOption = BUSINESS_UNIT_OPTIONS.find((u) => u.id === acc.businessUnit);
 
                   return (
                     <tr key={acc.id} className="hover:bg-slate-50/80 transition-colors">
@@ -695,16 +840,14 @@ export default function AccountsPage() {
                         {acc.name}
                       </td>
                       <td className="py-3 px-4">
-                        {isCatering ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                            <Utensils className="w-3 h-3 text-amber-700" />
-                            <span>Khusus Catering</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-                            {acc.businessUnit || 'UMUM'}
-                          </span>
-                        )}
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                            unitOption?.badge || 'bg-slate-100 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          <span>{unitOption?.icon || '🏢'}</span>
+                          <span>{unitOption?.label || acc.businessUnit}</span>
+                        </span>
                       </td>
                       <td className="py-3 px-4">
                         <span
@@ -765,7 +908,7 @@ export default function AccountsPage() {
       {/* Modal Tambah / Edit Akun */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-lg overflow-hidden my-6">
+          <div className="bg-white rounded-2xl shadow-elevated border border-slate-200 w-full max-w-xl overflow-hidden my-6">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-slate-900">
@@ -790,71 +933,67 @@ export default function AccountsPage() {
                 </div>
               )}
 
-              {/* Pemilihan Unit Bisnis */}
+              {/* Pemilihan Unit Usaha Lengkap (Semua 6 Unit) */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Peruntukan Unit Usaha <span className="text-rose-500">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData((prev) => ({ ...prev, businessUnit: 'CATERING' }));
-                      handleSelectPreset('OFFICE');
-                    }}
-                    className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all ${
-                      formData.businessUnit === 'CATERING'
-                        ? 'border-amber-500 bg-amber-50/80 ring-2 ring-amber-500/20 text-amber-950'
-                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <Utensils className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <div className="text-xs font-bold">Khusus Catering Desa</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">Otomatis muncul di kas Catering</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFormData((prev) => ({ ...prev, businessUnit: 'UMUM' }))}
-                    className={`p-3 rounded-xl border text-left flex items-start gap-2.5 transition-all ${
-                      formData.businessUnit !== 'CATERING'
-                        ? 'border-slate-900 bg-slate-50 ring-2 ring-slate-900/20 text-slate-950'
-                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <Building2 className="w-4 h-4 text-slate-700 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <div className="text-xs font-bold">Umum / Unit Lain</div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">Operasional BUMDes umum</div>
-                    </div>
-                  </button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {BUSINESS_UNIT_OPTIONS.map((unit) => {
+                    const isSelected = formData.businessUnit === unit.id;
+                    return (
+                      <button
+                        key={unit.id}
+                        type="button"
+                        onClick={() => handleUnitChange(unit.id)}
+                        className={`p-2.5 rounded-xl border text-left flex items-start gap-2 transition-all ${
+                          isSelected
+                            ? 'border-slate-900 bg-slate-900 text-white ring-2 ring-slate-900/20'
+                            : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <span className="text-sm mt-0.5">{unit.icon}</span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold truncate">{unit.label}</div>
+                          <div className={`text-[10px] truncate ${isSelected ? 'text-slate-300' : 'text-slate-400'}`}>
+                            {unit.id === 'CATERING' ? 'Unit Catering' : unit.id === 'UMUM' ? 'Kas Umum' : 'Unit Usaha'}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Jika Unit CATERING: Tampilkan Preset Khusus Catering */}
-              {formData.businessUnit === 'CATERING' && (
-                <div className="space-y-2">
-                  <label className="block text-xs font-semibold text-slate-700">
-                    Pilih Jenis Pos Akun Catering <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* Jika Unit CATERING: Tampilkan Preset Shortcut Cepat (Termasuk Utang) */}
+              {formData.businessUnit === 'CATERING' && !isEditing && (
+                <div className="space-y-2 p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-amber-900 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      Shortcut Template Pos Catering (Opsional)
+                    </label>
+                    <span className="text-[10px] text-amber-700 font-medium">Klik untuk auto-fill</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     {CATERING_PRESETS.map((preset) => {
-                      const isSelected = selectedCateringPreset === preset.id;
+                      const isSelected = selectedCateringPreset === preset.id && formData.category === preset.category;
                       return (
                         <button
                           key={preset.id}
                           type="button"
                           onClick={() => handleSelectPreset(preset.id)}
-                          className={`p-2.5 rounded-xl border text-left transition-all ${
+                          className={`p-2 rounded-lg border text-left transition-all text-xs ${
                             isSelected
-                              ? 'border-amber-600 bg-amber-500/10 ring-1 ring-amber-500 text-amber-950'
-                              : 'border-slate-200 hover:border-slate-300 text-slate-700'
+                              ? 'border-amber-600 bg-amber-100/90 text-amber-950 font-bold ring-1 ring-amber-500'
+                              : 'border-amber-200/60 bg-white/80 hover:bg-white text-slate-700'
                           }`}
                         >
-                          <div className="text-xs font-bold">{preset.title}</div>
-                          <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-2">
+                          <div className="font-semibold text-[11px] flex items-center justify-between">
+                            <span>{preset.title}</span>
+                            <span className="text-[9px] font-mono opacity-70">[{preset.prefix}]</span>
+                          </div>
+                          <div className="text-[9px] text-slate-500 mt-0.5 line-clamp-1">
                             {preset.desc}
                           </div>
                         </button>
@@ -864,27 +1003,31 @@ export default function AccountsPage() {
                 </div>
               )}
 
-              {/* Kategori Akuntansi Standar (Hanya jika Umum atau Edit) */}
-              {formData.businessUnit !== 'CATERING' && (
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              {/* Kategori Akuntansi Standar SAK EMKM - SELALU TERSEDIA & DAPAT DIKUSTOMISASI */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700">
                     Kategori Akuntansi SAK EMKM <span className="text-rose-500">*</span>
                   </label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) =>
-                      setFormData({ ...formData, category: e.target.value as AccountCategory })
-                    }
-                    className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                  >
-                    {(Object.keys(CATEGORY_METADATA) as AccountCategory[]).map((cat) => (
-                      <option key={cat} value={cat}>
-                        [{CATEGORY_METADATA[cat].prefix}] {CATEGORY_METADATA[cat].label}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="text-[10px] text-slate-500">
+                    Posisi normal neraca & laba rugi
+                  </span>
                 </div>
-              )}
+                <select
+                  value={formData.category}
+                  onChange={(e) => handleCategoryChange(e.target.value as AccountCategory)}
+                  className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+                >
+                  {(Object.keys(CATEGORY_METADATA) as AccountCategory[]).map((cat) => (
+                    <option key={cat} value={cat}>
+                      [{CATEGORY_METADATA[cat].prefix}] {CATEGORY_METADATA[cat].label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {CATEGORY_METADATA[formData.category].desc}
+                </p>
+              </div>
 
               {/* Kode Akun */}
               <div>
@@ -892,17 +1035,15 @@ export default function AccountsPage() {
                   <label className="block text-xs font-semibold text-slate-700">
                     Nomor Kode Akun <span className="text-rose-500">*</span>
                   </label>
-                  {formData.businessUnit === 'CATERING' && (
-                    <span className="text-[11px] text-amber-700 font-medium inline-flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-amber-500" />
-                      Rekomendasi otomatis terisi
-                    </span>
-                  )}
+                  <span className="text-[11px] text-slate-500 font-medium inline-flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    Rekomendasi otomatis terisi (Bisa diedit bebas)
+                  </span>
                 </div>
                 <input
                   type="text"
                   required
-                  placeholder="Contoh: 5053"
+                  placeholder="Contoh: 2003"
                   value={formData.code}
                   onChange={(e) => setFormData({ ...formData, code: e.target.value.replace(/\s+/g, '') })}
                   className="w-full h-10 px-3 text-xs sm:text-sm font-mono font-semibold text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
@@ -918,9 +1059,13 @@ export default function AccountsPage() {
                   type="text"
                   required
                   placeholder={
-                    formData.businessUnit === 'CATERING'
-                      ? 'Contoh: Beban Cetak Brosur & Promosi Catering'
-                      : 'Contoh: Beban Perlengkapan Kantor'
+                    formData.category === 'KEWAJIBAN'
+                      ? 'Contoh: Utang Supplier Bahan Pokok Catering'
+                      : formData.category === 'PENDAPATAN'
+                      ? 'Contoh: Pendapatan Pesanan Snack Box Instansi'
+                      : formData.category === 'ASET'
+                      ? 'Contoh: Aset Kompor High Pressure'
+                      : 'Contoh: Beban Operasional Dapur Catering'
                   }
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
