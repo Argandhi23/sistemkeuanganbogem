@@ -39,13 +39,13 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Identitas BUMDes */}
-          <Link href="/" className="flex items-center gap-2.5 group">
+          <Link href={session?.user?.role === 'CATERING' ? '/units/catering' : '/'} className="flex items-center gap-2.5 group">
             <div className="relative w-8 h-8 flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-105">
               <Image
                 src="/logo.png"
                 alt="Logo BUMDes Bogem"
-                width={32}
-                height={32}
+                width={40}
+                height={40}
                 className="w-full h-full object-contain"
                 priority
               />
@@ -55,9 +55,15 @@ export function Navbar() {
                 <span className="text-base font-bold text-slate-900 tracking-tight leading-none">
                   BUMDes Bogem
                 </span>
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  Multi-Unit
-                </span>
+                {session?.user?.role === 'CATERING' ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                    Unit Catering
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Multi-Unit
+                  </span>
+                )}
               </div>
             </div>
           </Link>
@@ -86,7 +92,11 @@ export function Navbar() {
                     {session.user.name || 'Petugas'}
                   </div>
                   <div className="text-[10px] text-slate-400 font-medium leading-none mt-0.5">
-                    {session.user.role === 'ADMIN' ? 'Admin Desa' : 'Petugas'}
+                    {session.user.role === 'ADMIN'
+                      ? 'Sekretaris Desa'
+                      : session.user.role === 'CATERING'
+                      ? 'Pengurus Catering'
+                      : 'Petugas'}
                   </div>
                 </div>
 

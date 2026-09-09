@@ -20,6 +20,9 @@ const accountCreateSchema = z.object({
     'KEWAJIBAN',
     'MODAL',
   ]),
+  businessUnit: z
+    .enum(['CATERING', 'RENTAL_MOLEN', 'WIFI_DESA', 'PPOB', 'KETAHANAN_PANGAN', 'UMUM'])
+    .default('UMUM'),
 });
 
 export async function GET(req: NextRequest) {
@@ -31,11 +34,12 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
+    const businessUnit = searchParams.get('businessUnit');
     const search = searchParams.get('search')?.trim();
     const includeInactive = searchParams.get('all') === 'true';
 
     // Jika tanpa filter dan cache masih valid, gunakan cache
-    if (!category && !search && !includeInactive) {
+    if (!category && !businessUnit && !search && !includeInactive) {
       const cachedData = getAccountsCache();
       if (cachedData) {
         return NextResponse.json(
@@ -56,6 +60,9 @@ export async function GET(req: NextRequest) {
     if (category) {
       where.category = category as AccountCategory;
     }
+    if (businessUnit) {
+      where.businessUnit = businessUnit as Prisma.EnumBusinessUnitFilter['equals'];
+    }
     if (search) {
       where.OR = [
         { code: { contains: search, mode: 'insensitive' } },
@@ -73,7 +80,7 @@ export async function GET(req: NextRequest) {
       orderBy: { code: 'asc' },
     });
 
-    if (!category && !search && !includeInactive) {
+    if (!category && !businessUnit && !search && !includeInactive) {
       setAccountsCache(accounts);
     }
 
@@ -109,7 +116,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errorMessage }, { status: 400 });
     }
 
-    const { code, name, category } = parsed.data;
+    const { code, name, category, businessUnit } = parsed.data;
 
     const existing = await prisma.account.findUnique({
       where: { code },
@@ -127,6 +134,7 @@ export async function POST(req: NextRequest) {
         code,
         name,
         category,
+        businessUnit: businessUnit || 'UMUM',
         isActive: true,
       },
     });

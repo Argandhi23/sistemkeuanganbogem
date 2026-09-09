@@ -17,6 +17,8 @@ import {
   Wifi,
   Smartphone,
   Sprout,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -24,6 +26,34 @@ export function Sidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
+  const isCatering = session?.user?.role === 'CATERING';
+
+  const cateringMenuItems = [
+    {
+      name: 'Buku Kas Catering',
+      href: '/units/catering',
+      icon: UtensilsCrossed,
+      color: 'text-amber-600',
+    },
+    {
+      name: '+ Catat Uang Masuk',
+      href: '/transaksi/tambah?businessUnit=CATERING&type=PEMASUKAN',
+      icon: ArrowDownLeft,
+      color: 'text-emerald-600',
+    },
+    {
+      name: '- Uang Keluar & Operasional',
+      href: '/transaksi/tambah?businessUnit=CATERING&type=PENGELUARAN',
+      icon: ArrowUpRight,
+      color: 'text-rose-600',
+    },
+    {
+      name: 'Laporan Keuangan Catering',
+      href: '/laporan?businessUnit=CATERING',
+      icon: FileText,
+      color: 'text-blue-600',
+    },
+  ];
 
   const menuItems = [
     {
@@ -98,75 +128,113 @@ export function Sidebar() {
   return (
     <aside className="w-64 bg-transparent p-2 flex flex-col justify-between hidden lg:flex no-print">
       <div className="space-y-5">
-        {/* Menu Navigasi Utama */}
-        <div className="pt-1">
-          <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
-            Utama
-          </div>
-          <nav className="space-y-0.5">
-            {menuItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = item.exact
-                ? pathname === item.href
-                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+        {/* Jika Role Khusus CATERING */}
+        {isCatering ? (
+          <div className="pt-1">
+            <div className="text-[10px] font-bold tracking-wider text-amber-600 uppercase px-2.5 mb-1.5 flex items-center gap-1.5">
+              <span>Unit Usaha Catering</span>
+            </div>
+            <nav className="space-y-0.5">
+              {cateringMenuItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = pathname === item.href || (item.href.includes('?') && pathname === item.href.split('?')[0]);
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={clsx(
-                    'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors select-none',
-                    isActive
-                      ? 'bg-slate-900 text-white font-semibold shadow-subtle'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  )}
-                >
-                  <Icon
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
                     className={clsx(
-                      'w-4 h-4 flex-shrink-0',
-                      isActive ? 'text-white' : 'text-slate-400'
+                      'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors select-none',
+                      isActive
+                        ? 'bg-slate-900 text-white font-semibold shadow-subtle'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                     )}
-                  />
-                  <span>{item.name}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Menu Unit Usaha BUMDes */}
-        <div>
-          <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
-            Unit Usaha BUMDes
+                  >
+                    <Icon
+                      className={clsx(
+                        'w-4 h-4 flex-shrink-0',
+                        isActive ? 'text-white' : item.color
+                      )}
+                    />
+                    <span>{item.name}</span>
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
-          <nav className="space-y-0.5">
-            {unitMenuItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        ) : (
+          <>
+            {/* Menu Navigasi Utama Admin */}
+            <div className="pt-1">
+              <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
+                Utama (Sekretariat Desa)
+              </div>
+              <nav className="space-y-0.5">
+                {menuItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = item.exact
+                    ? pathname === item.href
+                    : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={clsx(
-                    'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors select-none',
-                    isActive
-                      ? 'bg-slate-900 text-white font-semibold shadow-subtle'
-                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                  )}
-                >
-                  <Icon
-                    className={clsx(
-                      'w-4 h-4 flex-shrink-0',
-                      isActive ? 'text-white' : item.color
-                    )}
-                  />
-                  <span>{item.name}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={clsx(
+                        'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors select-none',
+                        isActive
+                          ? 'bg-slate-900 text-white font-semibold shadow-subtle'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      )}
+                    >
+                      <Icon
+                        className={clsx(
+                          'w-4 h-4 flex-shrink-0',
+                          isActive ? 'text-white' : 'text-slate-400'
+                        )}
+                      />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Menu Unit Usaha BUMDes */}
+            <div>
+              <div className="text-[10px] font-bold tracking-wider text-slate-400 uppercase px-2.5 mb-1.5">
+                Unit Usaha BUMDes
+              </div>
+              <nav className="space-y-0.5">
+                {unitMenuItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={clsx(
+                        'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium transition-colors select-none',
+                        isActive
+                          ? 'bg-slate-900 text-white font-semibold shadow-subtle'
+                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                      )}
+                    >
+                      <Icon
+                        className={clsx(
+                          'w-4 h-4 flex-shrink-0',
+                          isActive ? 'text-white' : item.color
+                        )}
+                      />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          </>
+        )}
 
         {/* Menu Khusus Admin */}
         {isAdmin && (

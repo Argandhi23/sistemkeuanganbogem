@@ -22,7 +22,8 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const exportType = searchParams.get('type') || 'transaksi';
-    const businessUnit = searchParams.get('businessUnit') as BusinessUnit | null;
+    const rawBusinessUnit = searchParams.get('businessUnit') as BusinessUnit | null;
+    const businessUnit = session.user.role === 'CATERING' ? BusinessUnit.CATERING : rawBusinessUnit;
     const month = searchParams.get('month');
     const year = searchParams.get('year');
 

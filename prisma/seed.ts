@@ -32,22 +32,22 @@ async function main() {
     },
   });
 
-  // 2. Seed User / Petugas
+  // 2. Seed User / Petugas Catering
   const user = await prisma.user.upsert({
     where: { email: 'petugas@bogem.desa.id' },
-    update: {},
+    update: { role: Role.CATERING },
     create: {
-      name: 'Ibu Sri (Bendahara BUMDes)',
+      name: 'Ibu Sri (Pengurus Catering)',
       email: 'petugas@bogem.desa.id',
       password: hashedPasswordPetugas,
-      role: Role.USER,
+      role: Role.CATERING,
       isActive: true,
     },
   });
 
   console.log('Users seeded:');
   console.log(`- Admin: ${admin.email} (Password: admin123)`);
-  console.log(`- Petugas: ${user.email} (Password: petugas123)`);
+  console.log(`- Catering: ${user.email} (Password: petugas123)`);
 
   // 3. Seed Chart of Accounts (COA) 4-Digit Lengkap SAK EMKM BUMDes Bogem Multi Unit
   const defaultAccounts = [
@@ -93,6 +93,8 @@ async function main() {
     { code: '5002', name: 'Beban Perlengkapan & Kemasan Box Snack', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
     { code: '5003', name: 'Beban Upah Masak & Tenaga Kerja Catering', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
     { code: '5004', name: 'Beban Gas Elpiji, Listrik & Air Dapur Catering', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
+    { code: '5051', name: 'Beban Operasional Kantor Catering (ATK, Komunikasi, Kebersihan)', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
+    { code: '5052', name: 'Beban Logistik & Transportasi Kantor Catering', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.CATERING },
     // 5.2 Rental Molen
     { code: '5011', name: 'Beban Pemeliharaan, Oli & Sparepart Molen', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.RENTAL_MOLEN },
     { code: '5012', name: 'Beban Bahan Bakar / Solar Mesin Molen', category: AccountCategory.BEBAN_OPERASIONAL, businessUnit: BusinessUnit.RENTAL_MOLEN },

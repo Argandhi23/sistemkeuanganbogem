@@ -34,11 +34,15 @@ export async function GET(req: NextRequest) {
 
     const where: Prisma.TransactionWhereInput = {};
 
+    // Filter type (PEMASUKAN / PENGELUARAN)
     if (type && (type === 'PEMASUKAN' || type === 'PENGELUARAN')) {
       where.type = type;
     }
 
-    if (businessUnit && businessUnit !== 'ALL') {
+    // Isolasi ketat: User role CATERING hanya boleh melihat transaksi unit CATERING
+    if (session.user.role === 'CATERING') {
+      where.businessUnit = BusinessUnit.CATERING;
+    } else if (businessUnit && businessUnit !== 'ALL') {
       where.businessUnit = businessUnit as BusinessUnit;
     }
 
@@ -134,6 +138,36 @@ export async function GET(req: NextRequest) {
       if (item.type === 'PENGELUARAN') totalExpense += sum;
     }
 
+    let cateringKitchenExpense = 0;
+    let cateringOfficeExpense = 0;
+    if (where.businessUnit === 'CATERING') {
+      const expenseAccounts = await prisma.transaction.groupBy({
+        by: ['accountId'],
+        where: { ...where, type: 'PENGELUARAN' },
+        _sum: { amount: true },
+      });
+      const accountIds = expenseAccounts.map((e) => e.accountId).filter(Boolean) as string[];
+      const accList = await prisma.account.findMany({
+        where: { id: { in: accountIds } },
+        select: { id: true, code: true },
+      });
+      const officeCodes = new Set(['5051', '5052', '5005', '5007', '5006', '6001']);
+      const officeAccIds = new Set(
+        accList
+          .filter((a) => a.code.startsWith('505') || officeCodes.has(a.code))
+          .map((a) => a.id)
+      );
+
+      for (const item of expenseAccounts) {
+        const sum = Number(item._sum.amount || 0);
+        if (item.accountId && officeAccIds.has(item.accountId)) {
+          cateringOfficeExpense += sum;
+        } else {
+          cateringKitchenExpense += sum;
+        }
+      }
+    }
+
     return NextResponse.json({
       data: transactions,
       pagination: {
@@ -147,6 +181,8 @@ export async function GET(req: NextRequest) {
         totalExpense,
         balance: totalIncome - totalExpense,
         netBalance: totalIncome - totalExpense,
+        cateringKitchenExpense,
+        cateringOfficeExpense,
       },
     });
   } catch (error) {
@@ -233,12 +269,18 @@ export async function POST(req: NextRequest) {
         ? new Date(`${date}T12:00:00.000Z`)
         : new Date(date);
 
+    // Role CATERING hanya boleh membuat transaksi untuk unit CATERING
+    const finalBusinessUnit =
+      session.user.role === 'CATERING'
+        ? BusinessUnit.CATERING
+        : ((businessUnit as BusinessUnit) || BusinessUnit.UMUM);
+
     // 1. Simpan ke Database
     const transaction = await prisma.transaction.create({
       data: {
         type,
         category,
-        businessUnit: (businessUnit as BusinessUnit) || BusinessUnit.UMUM,
+        businessUnit: finalBusinessUnit,
         paymentMethod: paymentMethod || 'TUNAI',
         accountId: accountId || null,
         description,

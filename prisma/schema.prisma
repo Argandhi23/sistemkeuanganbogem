@@ -12,6 +12,7 @@ datasource db {
 enum Role {
   USER
   ADMIN
+  CATERING
 }
 
 enum BusinessUnit {

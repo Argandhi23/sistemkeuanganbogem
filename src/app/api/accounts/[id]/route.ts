@@ -21,6 +21,9 @@ const accountUpdateSchema = z.object({
       'MODAL',
     ])
     .optional(),
+  businessUnit: z
+    .enum(['CATERING', 'RENTAL_MOLEN', 'WIFI_DESA', 'PPOB', 'KETAHANAN_PANGAN', 'UMUM'])
+    .optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -47,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: errorMessage }, { status: 400 });
     }
 
-    const { code, name, category, isActive } = parsed.data;
+    const { code, name, category, businessUnit, isActive } = parsed.data;
 
     if (code && code !== existing.code) {
       const codeTaken = await prisma.account.findUnique({
@@ -65,6 +68,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (code) updateData.code = code;
     if (name) updateData.name = name;
     if (category) updateData.category = category;
+    if (businessUnit) updateData.businessUnit = businessUnit;
     if (typeof isActive === 'boolean') updateData.isActive = isActive;
 
     const updated = await prisma.account.update({

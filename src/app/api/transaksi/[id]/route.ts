@@ -52,7 +52,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: 'Data transaksi tidak ditemukan' }, { status: 404 });
     }
 
-    // RBAC: User hanya boleh mengedit transaksi buatannya sendiri
+    // RBAC: Pengurus Catering hanya boleh mengelola transaksi unit CATERING
+    if (session.user.role === 'CATERING' && existing.businessUnit !== 'CATERING') {
+      return NextResponse.json(
+        { error: 'Akses ditolak: Pengurus Catering hanya dapat mengelola transaksi unit Catering' },
+        { status: 403 }
+      );
+    }
+
+    // RBAC: Non-Admin hanya boleh mengedit transaksi buatannya sendiri
     if (session.user.role !== 'ADMIN' && existing.createdById !== session.user.id) {
       return NextResponse.json(
         { error: 'Anda hanya diperbolehkan mengedit transaksi yang Anda input sendiri' },
@@ -142,7 +150,15 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({ error: 'Data transaksi tidak ditemukan' }, { status: 404 });
     }
 
-    // RBAC: Admin dapat menghapus data apapun; Petugas hanya data buatannya sendiri
+    // RBAC: Pengurus Catering hanya boleh menghapus transaksi unit CATERING
+    if (session.user.role === 'CATERING' && existing.businessUnit !== 'CATERING') {
+      return NextResponse.json(
+        { error: 'Akses ditolak: Pengurus Catering hanya dapat menghapus transaksi unit Catering' },
+        { status: 403 }
+      );
+    }
+
+    // RBAC: Admin dapat menghapus data apapun; Petugas/Catering hanya data buatannya sendiri
     if (session.user.role !== 'ADMIN' && existing.createdById !== session.user.id) {
       return NextResponse.json(
         { error: 'Anda hanya diperbolehkan menghapus transaksi yang Anda input sendiri atau hubungi Administrator' },

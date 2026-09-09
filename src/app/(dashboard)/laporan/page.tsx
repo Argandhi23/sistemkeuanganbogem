@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
+import { useSession } from 'next-auth/react';
 import {
   Printer,
   Download,
@@ -37,11 +38,19 @@ const YEARS = [2024, 2025, 2026, 2027];
 
 export default function LaporanPage() {
   const now = new Date();
+  const { data: session } = useSession();
+  const isCatering = session?.user?.role === 'CATERING';
   const [activeTab, setActiveTab] = useState<'neraca' | 'laba-rugi' | 'perubahan-modal' | 'buku-besar' | 'arus-kas'>('neraca');
   const [periodType, setPeriodType] = useState<'month' | 'year' | 'all'>('month');
   const [selectedMonth, setSelectedMonth] = useState<number>(now.getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
-  const [selectedUnit, setSelectedUnit] = useState<string>('ALL');
+  const [selectedUnit, setSelectedUnit] = useState<string>(() => (session?.user?.role === 'CATERING' ? 'CATERING' : 'ALL'));
+
+  useEffect(() => {
+    if (isCatering && selectedUnit !== 'CATERING') {
+      setSelectedUnit('CATERING');
+    }
+  }, [isCatering, selectedUnit]);
 
   // Master Accounts for General Ledger
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
@@ -274,19 +283,25 @@ export default function LaporanPage() {
                 <span className="text-xs font-semibold text-slate-700 whitespace-nowrap">
                   Unit Usaha:
                 </span>
-                <select
-                  value={selectedUnit}
-                  onChange={(e) => setSelectedUnit(e.target.value)}
-                  className="h-9 px-3 text-xs font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-900 focus:outline-none cursor-pointer"
-                >
-                  <option value="ALL">Semua Unit (Konsolidasi)</option>
-                  <option value="CATERING">Catering Desa</option>
-                  <option value="RENTAL_MOLEN">Penyewaan Molen</option>
-                  <option value="WIFI_DESA">WiFi Balai Desa</option>
-                  <option value="PPOB">PPOB</option>
-                  <option value="KETAHANAN_PANGAN">Peternakan Sapi</option>
-                  <option value="UMUM">Operasional Kantor / Umum</option>
-                </select>
+                {isCatering ? (
+                  <div className="h-9 px-3 flex items-center bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-900">
+                    Catering Desa
+                  </div>
+                ) : (
+                  <select
+                    value={selectedUnit}
+                    onChange={(e) => setSelectedUnit(e.target.value)}
+                    className="h-9 px-3 text-xs font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:border-slate-900 focus:outline-none cursor-pointer"
+                  >
+                    <option value="ALL">Semua Unit (Konsolidasi)</option>
+                    <option value="CATERING">Catering Desa</option>
+                    <option value="RENTAL_MOLEN">Penyewaan Molen</option>
+                    <option value="WIFI_DESA">WiFi Balai Desa</option>
+                    <option value="PPOB">PPOB</option>
+                    <option value="KETAHANAN_PANGAN">Peternakan Sapi</option>
+                    <option value="UMUM">Operasional Kantor / Umum</option>
+                  </select>
+                )}
               </div>
 
               {/* Khusus Tab Buku Besar: Dropdown Akun */}
@@ -385,12 +400,12 @@ export default function LaporanPage() {
         {/* Kop Surat Laporan Resmi */}
         <div className="pb-5 border-b-2 border-slate-900 mb-6">
           <div className="flex items-center justify-center gap-4">
-            <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0">
+            <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0">
               <Image
                 src="/logo.png"
-                alt="Logo BUMDes Bogem"
-                width={56}
-                height={56}
+                alt="Logo BUMDes Berkah Lestari Bogem"
+                width={64}
+                height={64}
                 className="w-full h-full object-contain"
                 priority
               />
@@ -400,10 +415,12 @@ export default function LaporanPage() {
                 Pemerintah Desa Bogem
               </h2>
               <h3 className="text-base sm:text-lg font-bold text-slate-900 uppercase">
-                Badan Usaha Milik Desa (BUMDes) Bogem
+                BUMDes Berkah Lestari Desa Bogem
               </h3>
               <p className="text-xs text-slate-600">
-                Unit Usaha Catering & Pelayanan Konsumsi • Desa Bogem
+                {isCatering || selectedUnit === 'CATERING'
+                  ? 'Unit Usaha Catering & Pelayanan Konsumsi • Jln. Bhaktimulya 241'
+                  : 'Laporan Keuangan Konsolidasi Seluruh Unit Usaha BUMDes'}
               </p>
             </div>
           </div>

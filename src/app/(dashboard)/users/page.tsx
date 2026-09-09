@@ -8,6 +8,7 @@ import {
   User as UserIcon,
   X,
   Save,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -17,7 +18,7 @@ interface UserData {
   id: string;
   name: string;
   email: string;
-  role: 'USER' | 'ADMIN';
+  role: 'ADMIN' | 'CATERING' | 'USER';
   isActive: boolean;
   createdAt: string;
   _count?: {
@@ -39,7 +40,7 @@ export default function UsersPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'USER' | 'ADMIN'>('USER');
+  const [role, setRole] = useState<'ADMIN' | 'CATERING'>('CATERING');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -95,7 +96,7 @@ export default function UsersPage() {
         setName('');
         setEmail('');
         setPassword('');
-        setRole('USER');
+        setRole('CATERING');
         setToastMessage(`✅ Pengguna "${name}" berhasil ditambahkan`);
         fetchUsers();
       } else {
@@ -206,11 +207,15 @@ export default function UsersPage() {
                       </td>
                       <td className="py-3 px-4">
                         {u.role === 'ADMIN' ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-50 text-amber-900 border border-amber-200 px-1.5 py-0.2 rounded">
-                            <Shield className="w-3 h-3 text-amber-600" /> Admin
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-amber-50 text-amber-900 border border-amber-200 px-1.5 py-0.5 rounded">
+                            <Shield className="w-3 h-3 text-amber-600" /> Super Admin
+                          </span>
+                        ) : u.role === 'CATERING' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-emerald-50 text-emerald-900 border border-emerald-200 px-1.5 py-0.5 rounded">
+                            <UtensilsCrossed className="w-3 h-3 text-emerald-600" /> Pengurus Catering
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-slate-100 text-slate-700 px-1.5 py-0.2 rounded">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
                             <UserIcon className="w-3 h-3 text-slate-400" /> Petugas
                           </span>
                         )}
@@ -321,11 +326,11 @@ export default function UsersPage() {
                 </label>
                 <select
                   value={role}
-                  onChange={(e) => setRole(e.target.value as 'USER' | 'ADMIN')}
+                  onChange={(e) => setRole(e.target.value as 'ADMIN' | 'CATERING')}
                   className="w-full h-9 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10"
                 >
-                  <option value="USER">USER / Petugas (Input data & lihat laporan)</option>
-                  <option value="ADMIN">ADMIN (Kelola user & audit log)</option>
+                  <option value="CATERING">🍽️ Pengurus Catering (Khusus Transaksi & Operasional Catering)</option>
+                  <option value="ADMIN">👑 Super Admin / Sekdes (Akses Semua Unit & Kelola User)</option>
                 </select>
               </div>
 

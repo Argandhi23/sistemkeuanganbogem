@@ -113,7 +113,7 @@ const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
     },
     PENGELUARAN: {
       primaryCodes: ['5001', '5002', '5003', '5004', '1004', '1005'], // Bahan Baku, Box Snack, Upah Masak, Gas Elpiji Dapur, Persediaan, Perlengkapan
-      secondaryCodes: ['5005', '5007'], // Transportasi Pengantaran, Beban Operasional Lain-lain
+      secondaryCodes: ['5051', '5052', '5005', '5007', '5006'], // Operasional Kantor Khusus Catering (ATK, Transport, Listrik, Beban Kantor)
     },
   },
   KETAHANAN_PANGAN: {
@@ -144,11 +144,12 @@ function TambahTransaksiForm() {
   const searchParams = useSearchParams();
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
+  const isCateringRole = session?.user?.role === 'CATERING';
 
-  // Deteksi jika dibuka dari unit usaha tertentu vs dari Beranda
-  const queryUnit = searchParams.get('businessUnit') || searchParams.get('unit');
-  const isUnitLocked = Boolean(queryUnit);
-  const initialUnit = queryUnit || 'CATERING';
+  // Deteksi jika dibuka dari unit usaha tertentu vs dari Beranda (Role CATERING dikunci mutlak ke CATERING)
+  const queryUnit = isCateringRole ? 'CATERING' : (searchParams.get('businessUnit') || searchParams.get('unit'));
+  const isUnitLocked = isCateringRole || Boolean(searchParams.get('businessUnit') || searchParams.get('unit'));
+  const initialUnit = isCateringRole ? 'CATERING' : (queryUnit || 'CATERING');
   const initialType = searchParams.get('type') === 'PENGELUARAN' ? 'PENGELUARAN' : 'PEMASUKAN';
 
   const isSubmittingRef = useRef(false);
@@ -208,6 +209,35 @@ function TambahTransaksiForm() {
           !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
           !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
       );
+
+      if (unit === 'CATERING') {
+        const customKitchen = nonCash.filter(
+          (a) =>
+            a.businessUnit === 'CATERING' &&
+            a.category === 'BEBAN_OPERASIONAL' &&
+            !a.code.startsWith('505') &&
+            !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+            !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
+        );
+        const customOffice = nonCash.filter(
+          (a) =>
+            a.businessUnit === 'CATERING' &&
+            a.category === 'BEBAN_OPERASIONAL' &&
+            a.code.startsWith('505') &&
+            !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
+        );
+
+        return [
+          {
+            label: 'Biaya Pokok Dapur & Masak (Bahan, Kemasan Box, Upah Masak, Gas)',
+            accounts: [...primary, ...customKitchen],
+          },
+          {
+            label: 'Operasional Kantor Khusus Catering (ATK, Komunikasi, Kebersihan, Transport)',
+            accounts: [...secondary, ...customOffice],
+          },
+        ].filter((g) => g.accounts.length > 0);
+      }
 
       return [
         {

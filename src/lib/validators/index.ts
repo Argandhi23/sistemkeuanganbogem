@@ -195,7 +195,7 @@ export const userCreateSchema = z.object({
   name: z.string().min(2, 'Nama pengguna minimal 2 karakter'),
   email: z.string().email('Format email tidak valid'),
   password: z.string().min(6, 'Kata sandi minimal 6 karakter'),
-  role: z.enum(['USER', 'ADMIN']).default('USER'),
+  role: z.enum(['ADMIN', 'CATERING', 'USER']).default('CATERING'),
   isActive: z.boolean().default(true),
 });
 
@@ -205,7 +205,7 @@ export const userUpdateSchema = z.object({
   name: z.string().min(2, 'Nama pengguna minimal 2 karakter').optional(),
   email: z.string().email('Format email tidak valid').optional(),
   password: z.string().min(6, 'Kata sandi minimal 6 karakter').optional().or(z.literal('')),
-  role: z.enum(['USER', 'ADMIN']).optional(),
+  role: z.enum(['ADMIN', 'CATERING', 'USER']).optional(),
   isActive: z.boolean().optional(),
 });
 

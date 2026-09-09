@@ -1,14 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { signIn, getSession } from 'next-auth/react';
 import Image from 'next/image';
 import { Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -31,8 +29,12 @@ export default function LoginPage() {
         setError(res.error);
         setIsLoading(false);
       } else {
-        router.push('/');
-        router.refresh();
+        const session = await getSession();
+        if (session?.user?.role === 'CATERING') {
+          window.location.href = '/units/catering';
+        } else {
+          window.location.href = '/';
+        }
       }
     } catch {
       setError('Terjadi kesalahan koneksi');
@@ -48,21 +50,21 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-sm text-center">
-        <div className="relative w-14 h-14 mx-auto mb-3 flex items-center justify-center">
+        <div className="relative w-24 h-24 mx-auto mb-3 flex items-center justify-center">
           <Image
             src="/logo.png"
-            alt="Logo BUMDes Bogem"
-            width={56}
-            height={56}
+            alt="Logo BUMDes Bogem Berkah Lestari"
+            width={96}
+            height={96}
             className="w-full h-full object-contain drop-shadow-sm"
             priority
           />
         </div>
         <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-          BUMDes Desa Bogem
+          BUMDes Berkah Lestari
         </h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Sistem Pembukuan & Pesanan Catering
+          Desa Bogem • Sistem Pembukuan Keuangan & Catering
         </p>
       </div>
 
@@ -155,7 +157,7 @@ export default function LoginPage() {
                   onClick={() => handleQuickFill('admin@bogem.desa.id', 'admin123')}
                   className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
                 >
-                  <div className="font-semibold text-slate-900 text-[11px]">👑 Admin</div>
+                  <div className="font-semibold text-slate-900 text-[11px]">👑 Super Admin</div>
                   <div className="text-[10px] text-slate-500 truncate">admin@bogem.desa.id</div>
                 </button>
                 <button
@@ -163,7 +165,7 @@ export default function LoginPage() {
                   onClick={() => handleQuickFill('petugas@bogem.desa.id', 'petugas123')}
                   className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
                 >
-                  <div className="font-semibold text-slate-900 text-[11px]">👤 Petugas</div>
+                  <div className="font-semibold text-slate-900 text-[11px]">🍽️ Catering</div>
                   <div className="text-[10px] text-slate-500 truncate">petugas@bogem.desa.id</div>
                 </button>
               </div>
