@@ -107,7 +107,7 @@ const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
     PENGELUARAN: {
       primaryCodes: ['5001', '5002', '5003', '5004', '1004', '1005'], // Bahan Baku, Box Snack, Upah Masak, Gas Elpiji Dapur, Persediaan, Perlengkapan
       secondaryCodes: ['5051', '5052', '5005', '5007', '5006'], // Operasional Kantor Khusus Catering (ATK, Transport, Listrik, Beban Kantor)
-      assetCodes: ['1204', '1201', '1205'], // Aset Peralatan & Mesin Catering
+      assetCodes: ['1204', '1205'], // Aset Peralatan & Perlengkapan Catering (tanpa molen)
     },
   },
   KETAHANAN_PANGAN: {
@@ -258,7 +258,9 @@ function TambahTransaksiForm() {
             ((a.businessUnit === 'CATERING' && a.category === 'ASET') || cfg.PENGELUARAN.assetCodes?.includes(a.code)) &&
             !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
             !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
-            a.code !== '1003'
+            a.code !== '1003' &&
+            a.code !== '1201' &&
+            !a.name.toLowerCase().includes('molen')
         );
 
         return [
