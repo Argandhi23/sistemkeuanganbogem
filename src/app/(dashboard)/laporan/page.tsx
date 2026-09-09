@@ -107,7 +107,8 @@ export default function LaporanPage() {
     try {
       setIsLoading(true);
       const { start, end } = getDateRange();
-      const unitParam = selectedUnit !== 'ALL' ? `&businessUnit=${selectedUnit}` : '';
+      const effectiveUnit = isCatering ? 'CATERING' : selectedUnit;
+      const unitParam = effectiveUnit !== 'ALL' ? `&businessUnit=${effectiveUnit}` : '';
 
       if (activeTab === 'neraca') {
         const res = await fetch(`/api/laporan/neraca?asOfDate=${end}${unitParam}`);
@@ -149,7 +150,7 @@ export default function LaporanPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeTab, selectedAccountId, getDateRange, selectedUnit]);
+  }, [activeTab, selectedAccountId, getDateRange, selectedUnit, isCatering]);
 
   useEffect(() => {
     fetchReportData();
@@ -167,8 +168,9 @@ export default function LaporanPage() {
     if (periodType === 'month') {
       query.set('month', (selectedMonth + 1).toString());
     }
-    if (selectedUnit !== 'ALL') {
-      query.set('businessUnit', selectedUnit);
+    const effectiveUnit = isCatering ? 'CATERING' : selectedUnit;
+    if (effectiveUnit !== 'ALL') {
+      query.set('businessUnit', effectiveUnit);
     }
     window.location.href = `/api/export/excel?${query.toString()}`;
   };

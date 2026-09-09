@@ -939,10 +939,6 @@ export async function getBalanceSheet(
     _sum: { amount: true },
   });
 
-  const referencedAccountIds = assignedAggregates
-    .map((a) => a.accountId)
-    .filter((id): id is string => Boolean(id));
-
   // 4. Master Bagan Akun
   const accounts = await prisma.account.findMany({
     where: {
@@ -952,7 +948,6 @@ export async function getBalanceSheet(
             OR: [
               { businessUnit: businessUnit as BusinessUnit },
               { businessUnit: BusinessUnit.UMUM },
-              { id: { in: referencedAccountIds } },
             ],
           }
         : {}),
@@ -962,6 +957,7 @@ export async function getBalanceSheet(
       code: true,
       name: true,
       category: true,
+      businessUnit: true,
     },
     orderBy: { code: 'asc' },
   });
@@ -1108,8 +1104,13 @@ export async function getBalanceSheet(
     acc.name.toLowerCase().includes('inventaris') ||
     acc.name.toLowerCase().includes('kendaraan');
 
+  const isAccountPermittedForUnit = (a: (typeof accounts)[0]) => {
+    if (!businessUnit || businessUnit === 'ALL') return true;
+    return a.businessUnit === (businessUnit as BusinessUnit) || a.businessUnit === BusinessUnit.UMUM;
+  };
+
   const currentAssetAccounts = accounts.filter(
-    (a) => a.category === AccountCategory.ASET && !isFixedAsset(a)
+    (a) => a.category === AccountCategory.ASET && !isFixedAsset(a) && isAccountPermittedForUnit(a)
   );
 
   const currentAssetItems: BalanceSheetItem[] = [];
@@ -1140,7 +1141,7 @@ export async function getBalanceSheet(
 
   // 2. ASET TETAP
   const fixedAssetAccounts = accounts.filter(
-    (a) => a.category === AccountCategory.ASET && isFixedAsset(a)
+    (a) => a.category === AccountCategory.ASET && isFixedAsset(a) && isAccountPermittedForUnit(a)
   );
 
   const fixedAssetItems: BalanceSheetItem[] = [];

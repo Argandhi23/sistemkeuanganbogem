@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { BigButton } from '@/components/ui/BigButton';
+import { invalidateClientAccountsCache } from '@/lib/client-cache';
 
 type AccountCategory =
   | 'ASET'
@@ -318,6 +319,7 @@ export default function AccountsPage() {
       const json = await res.json();
 
       if (res.ok) {
+        invalidateClientAccountsCache();
         setIsModalOpen(false);
         showFeedback('success', json.message || 'Kode akun berhasil disimpan');
         fetchAccounts();
@@ -345,6 +347,7 @@ export default function AccountsPage() {
       const json = await res.json();
 
       if (res.ok) {
+        invalidateClientAccountsCache();
         setDeleteConfirmAccount(null);
         showFeedback('success', json.message || 'Akun berhasil dihapus');
         fetchAccounts();

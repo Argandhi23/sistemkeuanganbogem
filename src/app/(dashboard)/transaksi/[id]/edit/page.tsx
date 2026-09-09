@@ -14,18 +14,11 @@ import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SuccessFeedback } from '@/components/ui/SuccessFeedback';
-import { invalidateClientDashboardCache } from '@/lib/client-cache';
+import { invalidateClientDashboardCache, getClientAccountsCache, setClientAccountsCache, ClientAccountItem } from '@/lib/client-cache';
 import { invalidateUnitLedgerCache } from '@/components/units/UnitCashLedger';
 
-interface AccountItem {
-  id: string;
-  code: string;
-  name: string;
-  category: string;
-  businessUnit: string;
-}
+type AccountItem = ClientAccountItem;
 
-let clientAccountsCache: AccountItem[] | null = null;
 
 const getUnitLabel = (unit: string) => {
   switch (unit) {
@@ -99,6 +92,7 @@ const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
     PENGELUARAN: {
       primaryCodes: ['5001', '5002', '5003', '5004', '1004', '1005'], // Bahan Baku, Box Snack, Upah Masak, Gas Elpiji Dapur, Persediaan, Perlengkapan
       secondaryCodes: ['5051', '5052', '5005', '5007', '5006'], // Operasional Kantor Khusus Catering (ATK, Transport, Listrik, Beban Kantor)
+      assetCodes: ['1204', '1201', '1205'], // Aset Peralatan & Mesin Catering
     },
   },
   KETAHANAN_PANGAN: {
@@ -120,6 +114,7 @@ const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
     PENGELUARAN: {
       primaryCodes: ['5005', '5006', '5007', '5008', '5009', '5010'], // Transport Kantor, Listrik/Air Kantor, Operasional Lain, Diskon, Promosi, Kebersihan
       secondaryCodes: ['6001', '6002', '2001', '2002', '3004'], // Admin Bank, Bunga Pinjaman, Utang Usaha, Bagi Hasil PADes
+      assetCodes: ['1201', '1202', '1203', '1204', '1205'],
     },
   },
 };
@@ -137,7 +132,7 @@ export default function EditTransaksiPage() {
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>('PEMASUKAN');
   const [businessUnit, setBusinessUnit] = useState<string>('CATERING');
   const [paymentMethod, setPaymentMethod] = useState<'TUNAI' | 'TRANSFER'>('TUNAI');
-  const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
+  const [accounts, setAccounts] = useState<AccountItem[]>(() => getClientAccountsCache() || []);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [createdById, setCreatedById] = useState<string>('');
   const [amount, setAmount] = useState<number>(0);
@@ -160,7 +155,7 @@ export default function EditTransaksiPage() {
     const cfg = UNIT_ACCOUNTS_CONFIG[unit] || UNIT_ACCOUNTS_CONFIG.UMUM;
 
     const nonCash = accList.filter(
-      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
+      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102' && a.code !== '1209'
     );
 
     if (trxType === 'PEMASUKAN') {
@@ -169,7 +164,7 @@ export default function EditTransaksiPage() {
       const custom = nonCash.filter(
         (a) =>
           a.businessUnit === unit &&
-          a.category === 'PENDAPATAN' &&
+          (a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.category === 'KEWAJIBAN') &&
           !cfg.PEMASUKAN.primaryCodes.includes(a.code) &&
           !cfg.PEMASUKAN.secondaryCodes?.includes(a.code)
       );
@@ -187,14 +182,6 @@ export default function EditTransaksiPage() {
     } else {
       const primary = nonCash.filter((a) => cfg.PENGELUARAN.primaryCodes.includes(a.code));
       const secondary = nonCash.filter((a) => cfg.PENGELUARAN.secondaryCodes?.includes(a.code));
-      const asset = nonCash.filter((a) => cfg.PENGELUARAN.assetCodes?.includes(a.code));
-      const custom = nonCash.filter(
-        (a) =>
-          a.businessUnit === unit &&
-          a.category === 'BEBAN_OPERASIONAL' &&
-          !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
-          !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
-      );
 
       if (unit === 'CATERING') {
         const customKitchen = nonCash.filter(
@@ -208,9 +195,27 @@ export default function EditTransaksiPage() {
         const customOffice = nonCash.filter(
           (a) =>
             a.businessUnit === 'CATERING' &&
-            a.category === 'BEBAN_OPERASIONAL' &&
-            a.code.startsWith('505') &&
+            (a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL') &&
+            (a.code.startsWith('505') || a.code.startsWith('6')) &&
             !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
+        );
+        const asset = nonCash.filter(
+          (a) =>
+            ((a.businessUnit === 'CATERING' && a.category === 'ASET') || cfg.PENGELUARAN.assetCodes?.includes(a.code)) &&
+            !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+            !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
+            a.code !== '1003'
+        );
+        const customOther = nonCash.filter(
+          (a) =>
+            a.businessUnit === 'CATERING' &&
+            (a.category === 'KEWAJIBAN' || a.category === 'MODAL' || a.category === 'BEBAN_NON_OPERASIONAL') &&
+            !primary.some((x) => x.id === a.id) &&
+            !secondary.some((x) => x.id === a.id) &&
+            !customKitchen.some((x) => x.id === a.id) &&
+            !customOffice.some((x) => x.id === a.id) &&
+            !asset.some((x) => x.id === a.id) &&
+            a.code !== '1003'
         );
 
         return [
@@ -220,10 +225,30 @@ export default function EditTransaksiPage() {
           },
           {
             label: 'Operasional Kantor Khusus Catering (ATK, Komunikasi, Kebersihan, Transport)',
-            accounts: [...secondary, ...customOffice],
+            accounts: [...secondary, ...customOffice, ...customOther],
+          },
+          {
+            label: 'Pengadaan Aset & Peralatan Catering',
+            accounts: asset,
           },
         ].filter((g) => g.accounts.length > 0);
       }
+
+      const asset = nonCash.filter(
+        (a) =>
+          ((a.businessUnit === unit && a.category === 'ASET') || cfg.PENGELUARAN.assetCodes?.includes(a.code)) &&
+          !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+          !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
+          a.code !== '1003'
+      );
+      const custom = nonCash.filter(
+        (a) =>
+          a.businessUnit === unit &&
+          (a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL' || a.category === 'KEWAJIBAN' || a.category === 'MODAL') &&
+          !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+          !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
+          !asset.some((x) => x.id === a.id)
+      );
 
       return [
         {
@@ -252,8 +277,9 @@ export default function EditTransaksiPage() {
   };
 
   useEffect(() => {
-    const fetchAccountsPromise = clientAccountsCache
-      ? Promise.resolve({ data: clientAccountsCache })
+    const cached = getClientAccountsCache();
+    const fetchAccountsPromise = cached && cached.length > 0
+      ? Promise.resolve({ data: cached })
       : fetch('/api/accounts').then((r) => r.json());
 
     Promise.all([
@@ -262,7 +288,7 @@ export default function EditTransaksiPage() {
     ])
       .then(([accountsRes, trxRes]) => {
         const accList: AccountItem[] = accountsRes.data || [];
-        clientAccountsCache = accList;
+        setClientAccountsCache(accList);
         setAccounts(accList);
 
         if (trxRes.data) {

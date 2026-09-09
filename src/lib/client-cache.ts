@@ -54,3 +54,26 @@ export function getClientDashboardCache(): DashboardDataCache | null {
 export function invalidateClientDashboardCache() {
   clientDashboardMemoryCache = null;
 }
+
+export interface ClientAccountItem {
+  id: string;
+  code: string;
+  name: string;
+  category: string;
+  businessUnit: string;
+}
+
+export let clientAccountsMemoryCache: ClientAccountItem[] | null = null;
+
+export function getClientAccountsCache(): ClientAccountItem[] | null {
+  return clientAccountsMemoryCache;
+}
+
+export function setClientAccountsCache(data: ClientAccountItem[]) {
+  clientAccountsMemoryCache = data;
+}
+
+export function invalidateClientAccountsCache() {
+  clientAccountsMemoryCache = null;
+}
+

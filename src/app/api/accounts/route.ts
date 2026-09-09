@@ -46,7 +46,9 @@ export async function GET(req: NextRequest) {
           { data: cachedData },
           {
             headers: {
-              'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              Pragma: 'no-cache',
+              Expires: '0',
             },
           }
         );
@@ -88,7 +90,9 @@ export async function GET(req: NextRequest) {
       { data: accounts },
       {
         headers: {
-          'Cache-Control': 'private, max-age=30, stale-while-revalidate=60',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
         },
       }
     );

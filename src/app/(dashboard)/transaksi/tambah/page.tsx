@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
@@ -12,18 +12,11 @@ import { BigButton } from '@/components/ui/BigButton';
 import { CurrencyInput } from '@/components/ui/CurrencyInput';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SuccessFeedback } from '@/components/ui/SuccessFeedback';
-import { invalidateClientDashboardCache } from '@/lib/client-cache';
+import { invalidateClientDashboardCache, getClientAccountsCache, setClientAccountsCache, ClientAccountItem } from '@/lib/client-cache';
 import { invalidateUnitLedgerCache } from '@/components/units/UnitCashLedger';
 
-interface AccountItem {
-  id: string;
-  code: string;
-  name: string;
-  category: string;
-  businessUnit: string;
-}
+type AccountItem = ClientAccountItem;
 
-let clientAccountsCache: AccountItem[] | null = null;
 
 const getUnitLabel = (unit: string) => {
   switch (unit) {
@@ -114,6 +107,7 @@ const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
     PENGELUARAN: {
       primaryCodes: ['5001', '5002', '5003', '5004', '1004', '1005'], // Bahan Baku, Box Snack, Upah Masak, Gas Elpiji Dapur, Persediaan, Perlengkapan
       secondaryCodes: ['5051', '5052', '5005', '5007', '5006'], // Operasional Kantor Khusus Catering (ATK, Transport, Listrik, Beban Kantor)
+      assetCodes: ['1204', '1201', '1205'], // Aset Peralatan & Mesin Catering
     },
   },
   KETAHANAN_PANGAN: {
@@ -135,6 +129,7 @@ const UNIT_ACCOUNTS_CONFIG: Record<string, UnitAccountConfig> = {
     PENGELUARAN: {
       primaryCodes: ['5005', '5006', '5007', '5008', '5009', '5010'], // Transport Kantor, Listrik/Air Kantor, Operasional Lain, Diskon, Promosi, Kebersihan
       secondaryCodes: ['6001', '6002', '2001', '2002', '3004'], // Admin Bank, Bunga Pinjaman, Utang Usaha, Bagi Hasil PADes
+      assetCodes: ['1201', '1202', '1203', '1204', '1205'],
     },
   },
 };
@@ -155,7 +150,7 @@ function TambahTransaksiForm() {
   const isSubmittingRef = useRef(false);
   const [type, setType] = useState<'PEMASUKAN' | 'PENGELUARAN'>(initialType);
   const [businessUnit, setBusinessUnit] = useState<string>(initialUnit);
-  const [accounts, setAccounts] = useState<AccountItem[]>(() => clientAccountsCache || []);
+  const [accounts, setAccounts] = useState<AccountItem[]>(() => getClientAccountsCache() || []);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
   const [amount, setAmount] = useState<number>(0);
   const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
@@ -174,7 +169,7 @@ function TambahTransaksiForm() {
     const cfg = UNIT_ACCOUNTS_CONFIG[unit] || UNIT_ACCOUNTS_CONFIG.UMUM;
 
     const nonCash = accList.filter(
-      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102'
+      (a) => a.code !== '1001' && a.code !== '1002' && a.code !== '101' && a.code !== '102' && a.code !== '1209'
     );
 
     if (trxType === 'PEMASUKAN') {
@@ -183,7 +178,7 @@ function TambahTransaksiForm() {
       const custom = nonCash.filter(
         (a) =>
           a.businessUnit === unit &&
-          a.category === 'PENDAPATAN' &&
+          (a.category === 'PENDAPATAN' || a.category === 'MODAL' || a.category === 'KEWAJIBAN') &&
           !cfg.PEMASUKAN.primaryCodes.includes(a.code) &&
           !cfg.PEMASUKAN.secondaryCodes?.includes(a.code)
       );
@@ -201,14 +196,6 @@ function TambahTransaksiForm() {
     } else {
       const primary = nonCash.filter((a) => cfg.PENGELUARAN.primaryCodes.includes(a.code));
       const secondary = nonCash.filter((a) => cfg.PENGELUARAN.secondaryCodes?.includes(a.code));
-      const asset = nonCash.filter((a) => cfg.PENGELUARAN.assetCodes?.includes(a.code));
-      const custom = nonCash.filter(
-        (a) =>
-          a.businessUnit === unit &&
-          a.category === 'BEBAN_OPERASIONAL' &&
-          !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
-          !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
-      );
 
       if (unit === 'CATERING') {
         const customKitchen = nonCash.filter(
@@ -222,9 +209,27 @@ function TambahTransaksiForm() {
         const customOffice = nonCash.filter(
           (a) =>
             a.businessUnit === 'CATERING' &&
-            a.category === 'BEBAN_OPERASIONAL' &&
-            a.code.startsWith('505') &&
+            (a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL') &&
+            (a.code.startsWith('505') || a.code.startsWith('6')) &&
             !cfg.PENGELUARAN.secondaryCodes?.includes(a.code)
+        );
+        const asset = nonCash.filter(
+          (a) =>
+            ((a.businessUnit === 'CATERING' && a.category === 'ASET') || cfg.PENGELUARAN.assetCodes?.includes(a.code)) &&
+            !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+            !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
+            a.code !== '1003'
+        );
+        const customOther = nonCash.filter(
+          (a) =>
+            a.businessUnit === 'CATERING' &&
+            (a.category === 'KEWAJIBAN' || a.category === 'MODAL' || a.category === 'BEBAN_NON_OPERASIONAL') &&
+            !primary.some((x) => x.id === a.id) &&
+            !secondary.some((x) => x.id === a.id) &&
+            !customKitchen.some((x) => x.id === a.id) &&
+            !customOffice.some((x) => x.id === a.id) &&
+            !asset.some((x) => x.id === a.id) &&
+            a.code !== '1003'
         );
 
         return [
@@ -234,10 +239,30 @@ function TambahTransaksiForm() {
           },
           {
             label: 'Operasional Kantor Khusus Catering (ATK, Komunikasi, Kebersihan, Transport)',
-            accounts: [...secondary, ...customOffice],
+            accounts: [...secondary, ...customOffice, ...customOther],
+          },
+          {
+            label: 'Pengadaan Aset & Peralatan Catering',
+            accounts: asset,
           },
         ].filter((g) => g.accounts.length > 0);
       }
+
+      const asset = nonCash.filter(
+        (a) =>
+          ((a.businessUnit === unit && a.category === 'ASET') || cfg.PENGELUARAN.assetCodes?.includes(a.code)) &&
+          !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+          !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
+          a.code !== '1003'
+      );
+      const custom = nonCash.filter(
+        (a) =>
+          a.businessUnit === unit &&
+          (a.category === 'BEBAN_OPERASIONAL' || a.category === 'BEBAN_NON_OPERASIONAL' || a.category === 'KEWAJIBAN' || a.category === 'MODAL') &&
+          !cfg.PENGELUARAN.primaryCodes.includes(a.code) &&
+          !cfg.PENGELUARAN.secondaryCodes?.includes(a.code) &&
+          !asset.some((x) => x.id === a.id)
+      );
 
       return [
         {
@@ -275,22 +300,31 @@ function TambahTransaksiForm() {
     setSelectedAccountId(pref);
   };
 
-  useEffect(() => {
-    if (clientAccountsCache && clientAccountsCache.length > 0) {
-      applyInitialAccount(type, businessUnit, clientAccountsCache);
+  const loadAccounts = useCallback((force = false) => {
+    const cached = getClientAccountsCache();
+    if (!force && cached && cached.length > 0) {
+      setAccounts(cached);
+      applyInitialAccount(type, businessUnit, cached);
       return;
     }
     fetch('/api/accounts')
       .then((res) => res.json())
       .then((json) => {
         const list: AccountItem[] = json.data || [];
-        clientAccountsCache = list;
+        setClientAccountsCache(list);
         setAccounts(list);
         applyInitialAccount(initialType, initialUnit, list);
       })
       .catch((err) => console.error('Error fetching accounts:', err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [type, businessUnit]);
+
+  useEffect(() => {
+    loadAccounts();
+    const handleFocus = () => loadAccounts(true);
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [loadAccounts]);
 
   const handleTypeChange = (newType: 'PEMASUKAN' | 'PENGELUARAN') => {
     setType(newType);

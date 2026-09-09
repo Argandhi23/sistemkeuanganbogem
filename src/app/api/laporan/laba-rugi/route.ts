@@ -30,10 +30,14 @@ export async function GET(req: NextRequest) {
       endDate.setHours(23, 59, 59, 999);
     }
 
+    const targetUnit = session.user.role === 'CATERING'
+      ? BusinessUnit.CATERING
+      : ((businessUnitParam as BusinessUnit | 'ALL') || undefined);
+
     const report = await getIncomeStatement(
       startDate,
       endDate,
-      (businessUnitParam as BusinessUnit | 'ALL') || undefined
+      targetUnit
     );
     return NextResponse.json({ data: report });
   } catch (error) {

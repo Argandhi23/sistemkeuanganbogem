@@ -20,7 +20,11 @@ export async function GET(req: NextRequest) {
       ? new Date(asOfDateParam)
       : new Date();
 
-    const report = await getBalanceSheet(asOfDate, (businessUnitParam as BusinessUnit | 'ALL') || undefined);
+    const targetUnit = session.user.role === 'CATERING'
+      ? BusinessUnit.CATERING
+      : ((businessUnitParam as BusinessUnit | 'ALL') || undefined);
+
+    const report = await getBalanceSheet(asOfDate, targetUnit);
     return NextResponse.json({ data: report });
   } catch (error) {
     console.error('Error in neraca API:', error);
