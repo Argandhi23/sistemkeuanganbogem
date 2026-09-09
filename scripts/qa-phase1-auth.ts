@@ -184,7 +184,7 @@ async function testPhase1() {
     }
 
     const mockAdminUser = { id: 'usr-admin-1', name: 'Admin', email: 'admin@bogem.desa.id', role: 'ADMIN' as const };
-    const token = await jwtCallback({ token: {}, user: mockAdminUser as any });
+    const token = await jwtCallback({ token: {} as any, user: mockAdminUser as any });
     const session = await sessionCallback({ session: { user: {} as any, expires: '' }, token });
 
     if (session.user?.role === 'ADMIN' && session.user?.id === 'usr-admin-1') {
