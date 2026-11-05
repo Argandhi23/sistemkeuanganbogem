@@ -55,9 +55,15 @@ export const authOptions: NextAuthOptions = {
           throw new Error('Silakan masukkan email dan kata sandi');
         }
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email.toLowerCase().trim() },
-        });
+        let user;
+        try {
+          user = await prisma.user.findUnique({
+            where: { email: credentials.email.toLowerCase().trim() },
+          });
+        } catch (error) {
+          console.error('[Auth] Database connection error:', error);
+          throw new Error('Gagal terhubung ke database. Pastikan server database aktif dan coba beberapa saat lagi.');
+        }
 
         if (!user) {
           throw new Error('Email atau kata sandi salah');
