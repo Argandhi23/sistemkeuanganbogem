@@ -146,27 +146,24 @@ export default function LoginPage() {
             </div>
           </form>
 
-          {/* Quick login helper */}
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-            <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider mb-2">
-              ⚡ Login Cepat:
+          <div className="mt-5 pt-4 border-t border-slate-200/80">
+            <p className="text-xs text-slate-500 text-center mb-2.5">
+              Masuk cepat sebagai
             </p>
-            <div className="grid grid-cols-2 gap-1.5 text-xs">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => handleQuickFill('admin@bogem.desa.id', 'admin123')}
-                className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
+                className="h-9 px-3 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors"
               >
-                <div className="font-semibold text-slate-900 text-[11px]">👑 Super Admin</div>
-                <div className="text-[10px] text-slate-500 truncate">admin@bogem.desa.id</div>
+                Admin
               </button>
               <button
                 type="button"
                 onClick={() => handleQuickFill('petugas@bogem.desa.id', 'petugas123')}
-                className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg text-left transition-colors"
+                className="h-9 px-3 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl transition-colors"
               >
-                <div className="font-semibold text-slate-900 text-[11px]">🍽️ Catering</div>
-                <div className="text-[10px] text-slate-500 truncate">petugas@bogem.desa.id</div>
+                Petugas Catering
               </button>
             </div>
           </div>
