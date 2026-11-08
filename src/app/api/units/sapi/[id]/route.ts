@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { logActivity } from '@/lib/activityLog';
+import { invalidateDashboardStatsCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,6 +37,8 @@ export async function PUT(
       },
     });
 
+    invalidateDashboardStatsCache();
+
     void logActivity({
       userId: session.user.id,
       action: 'UPDATE_TERNAK_SAPI',
@@ -68,6 +71,8 @@ export async function DELETE(
     }
 
     await prisma.cattle.delete({ where: { id } });
+
+    invalidateDashboardStatsCache();
 
     void logActivity({
       userId: session.user.id,

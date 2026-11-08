@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { logActivity } from '@/lib/activityLog';
+import { invalidateDashboardStatsCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,8 @@ export async function DELETE(
     }
 
     await prisma.ppobTransaction.delete({ where: { id } });
+
+    invalidateDashboardStatsCache();
 
     void logActivity({
       userId: session.user.id,

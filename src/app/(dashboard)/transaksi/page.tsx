@@ -190,8 +190,13 @@ export default function TransaksiPage() {
   const handleExportExcel = () => {
     const params = new URLSearchParams({ type: 'transaksi' });
     if (filterUnit !== 'ALL') params.append('businessUnit', filterUnit);
+    if (filterType !== 'ALL') params.append('txType', filterType);
     if (selectedYear !== 'ALL') params.append('year', selectedYear);
-    if (selectedMonth !== 'ALL') params.append('month', selectedMonth);
+    if (selectedMonth !== 'ALL') {
+      // selectedMonth adalah 0..11 di UI, konversi ke 1..12 untuk API export excel
+      params.append('month', String(parseInt(selectedMonth, 10) + 1));
+    }
+    if (searchQuery.trim()) params.append('search', searchQuery.trim());
     window.location.href = `/api/export/excel?${params.toString()}`;
   };
 

@@ -1,0 +1,75 @@
+name: Supabase Keep-Alive Heartbeat
+
+on:
+  schedule:
+    # Berjalan otomatis setiap 2 hari pada pukul 02:30 UTC (09:30 WIB)
+    # Mencegah Supabase Free Tier ter-pause karena batas inaktif 7 hari
+    - cron: '30 2 */2 * *'
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    name: Ping Supabase & Vercel Health Endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Vercel Health Endpoint (jika APP_URL diset)
+        env:
+          APP_URL: ${{ secrets.APP_URL || vars.APP_URL }}
+        run: |
+          if [ -n "$APP_URL" ]; then
+            CLEAN_URL="${APP_URL%/}"
+            echo "Pinging $CLEAN_URL/api/health?force=1 ..."
+            curl -fsSL --retry 3 --retry-delay 5 "$CLEAN_URL/api/health?force=1"
+            echo ""
+            echo "✅ Vercel /api/health ping berhasil!"
+          else
+            echo "ℹ️ APP_URL belum diatur di GitHub Secrets/Variables (lewati HTTP ping)."
+          fi
+
+      - name: Direct Database Keep-Alive (jika DATABASE_URL diset)
+        if: ${{ secrets.DATABASE_URL != '' }}
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js untuk Direct DB Ping
+        if: ${{ secrets.DATABASE_URL != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Jalankan Keep-Alive Query ke Supabase
+        if: ${{ secrets.DATABASE_URL != '' }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL || secrets.DATABASE_URL }}
+        run: |
+          npm ci --ignore-scripts
+          npx prisma generate
+          node -e '
+            const { PrismaClient } = require("@prisma/client");
+            const prisma = new PrismaClient();
+            (async () => {
+              const res = await prisma.$queryRaw`
+                WITH heartbeat_ins AS (
+                  INSERT INTO "ActivityLog" ("id", "userId", "action", "targetType", "targetId", "detail", "createdAt")
+                  SELECT '_supabase_keepalive_ping_', "id", 'SYSTEM_KEEPALIVE', 'Database', 'keepalive', 'GitHub Actions keep-alive', NOW()
+                  FROM "User"
+                  LIMIT 1
+                  ON CONFLICT ("id") DO UPDATE SET "createdAt" = NOW()
+                  RETURNING "id"
+                ),
+                heartbeat_del AS (
+                  DELETE FROM "ActivityLog"
+                  WHERE "id" IN (SELECT "id" FROM heartbeat_ins)
+                )
+                SELECT COUNT(*)::int AS accounts_count FROM "Account"
+              `;
+              console.log("✅ Supabase Keep-Alive berhasil! Total akun:", res[0]?.accounts_count);
+              await prisma.$disconnect();
+            })().catch(async (e) => {
+              console.error("❌ Keep-alive gagal:", e);
+              await prisma.$disconnect();
+              process.exit(1);
+            });
+          '

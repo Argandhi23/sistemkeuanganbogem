@@ -125,7 +125,10 @@ export default function EditTransaksiPage() {
   const id = params.id as string;
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === 'ADMIN';
+  const isCateringRole = session?.user?.role === 'CATERING';
   const currentUserId = session?.user?.id;
+  const backHref = isCateringRole ? '/units/catering' : '/transaksi';
+  const backLabel = isCateringRole ? 'Kembali ke Unit Catering' : 'Kembali ke Buku Kas';
 
   const isSubmittingRef = useRef(false);
   const isDeletingRef = useRef(false);
@@ -161,6 +164,38 @@ export default function EditTransaksiPage() {
     if (trxType === 'PEMASUKAN') {
       const primary = nonCash.filter((a) => cfg.PEMASUKAN.primaryCodes.includes(a.code));
       const secondary = nonCash.filter((a) => cfg.PEMASUKAN.secondaryCodes?.includes(a.code));
+
+      if (unit === 'CATERING') {
+        const customRevenue = nonCash.filter(
+          (a) =>
+            a.businessUnit === 'CATERING' &&
+            a.category === 'PENDAPATAN' &&
+            !cfg.PEMASUKAN.primaryCodes.includes(a.code) &&
+            !cfg.PEMASUKAN.secondaryCodes?.includes(a.code)
+        );
+        const cateringLiabilitiesAndEquity = nonCash.filter(
+          (a) =>
+            (a.businessUnit === 'CATERING' || a.businessUnit === 'UMUM') &&
+            (a.category === 'KEWAJIBAN' || a.category === 'MODAL' || a.code.startsWith('2')) &&
+            a.code !== '1003'
+        );
+
+        return [
+          {
+            label: `Pendapatan Utama - ${unitLabel}`,
+            accounts: [...primary, ...customRevenue],
+          },
+          {
+            label: 'Pendapatan Lain & Penunjang Catering',
+            accounts: secondary,
+          },
+          {
+            label: 'Penerimaan Utang Usaha / Uang Muka (DP) / Tambahan Modal Catering',
+            accounts: cateringLiabilitiesAndEquity,
+          },
+        ].filter((g) => g.accounts.length > 0);
+      }
+
       const custom = nonCash.filter(
         (a) =>
           a.businessUnit === unit &&
@@ -404,7 +439,7 @@ export default function EditTransaksiPage() {
       if (res.ok) {
         invalidateClientDashboardCache();
         invalidateUnitLedgerCache(businessUnit);
-        router.push('/transaksi');
+        router.push(backHref);
       } else {
         const err = await res.json();
         setError(err.error || 'Gagal menghapus data');
@@ -434,8 +469,8 @@ export default function EditTransaksiPage() {
         <PageHeader
           title="Edit Transaksi"
           description="Perbarui informasi transaksi uang masuk atau keluar BUMDes Bogem"
-          backHref="/transaksi"
-          backLabel="Kembali ke Buku Kas"
+          backHref={backHref}
+          backLabel={backLabel}
         />
         <SuccessFeedback
           title="Perubahan Berhasil Disimpan"
@@ -450,8 +485,8 @@ export default function EditTransaksiPage() {
           }}
           primaryActionText="Edit Transaksi Lagi"
           onSecondaryClick={() => setIsSuccess(false)}
-          secondaryActionText="Kembali ke Buku Kas"
-          secondaryActionHref="/transaksi"
+          secondaryActionText={backLabel}
+          secondaryActionHref={backHref}
         />
       </div>
     );
@@ -462,8 +497,8 @@ export default function EditTransaksiPage() {
       <PageHeader
         title="Edit Transaksi"
         description="Perbarui informasi transaksi uang masuk atau keluar BUMDes Bogem"
-        backHref="/transaksi"
-        backLabel="Kembali ke Buku Kas"
+        backHref={backHref}
+        backLabel={backLabel}
         action={
           (isAdmin || (createdById && createdById === currentUserId)) ? (
             <button
@@ -529,14 +564,19 @@ export default function EditTransaksiPage() {
               id="businessUnit"
               value={businessUnit}
               onChange={(e) => handleUnitChange(e.target.value)}
-              className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition-all"
+              disabled={isCateringRole}
+              className="w-full h-10 px-3 text-xs sm:text-sm font-medium text-slate-900 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 disabled:bg-slate-100 disabled:text-slate-600 transition-all"
             >
               <option value="CATERING">Catering Desa</option>
-              <option value="RENTAL_MOLEN">Penyewaan Molen</option>
-              <option value="WIFI_DESA">WiFi Balai Desa</option>
-              <option value="PPOB">PPOB</option>
-              <option value="KETAHANAN_PANGAN">Ketahanan Pangan (Peternakan Sapi)</option>
-              <option value="UMUM">Umum / Kas Kantor BUMDes</option>
+              {!isCateringRole && (
+                <>
+                  <option value="RENTAL_MOLEN">Penyewaan Molen</option>
+                  <option value="WIFI_DESA">WiFi Balai Desa</option>
+                  <option value="PPOB">PPOB</option>
+                  <option value="KETAHANAN_PANGAN">Ketahanan Pangan (Peternakan Sapi)</option>
+                  <option value="UMUM">Umum / Kas Kantor BUMDes</option>
+                </>
+              )}
             </select>
           </div>
 
@@ -641,7 +681,7 @@ export default function EditTransaksiPage() {
               type="button"
               variant="secondary"
               size="normal"
-              onClick={() => router.push('/transaksi')}
+              onClick={() => router.push(backHref)}
               disabled={isLoading}
             >
               Batal

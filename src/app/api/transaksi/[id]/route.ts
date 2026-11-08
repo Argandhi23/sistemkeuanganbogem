@@ -91,13 +91,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         ? new Date(`${date}T12:00:00.000Z`)
         : new Date(date);
 
-    // 1. Update Database
+    // 1. Update Database (kunci unit usaha ke CATERING bila role pengguna CATERING)
+    const enforcedBusinessUnit =
+      session.user.role === 'CATERING'
+        ? BusinessUnit.CATERING
+        : (businessUnit as BusinessUnit) || undefined;
+
     const updated = await prisma.transaction.update({
       where: { id: params.id },
       data: {
         type,
         category,
-        businessUnit: (businessUnit as BusinessUnit) || undefined,
+        businessUnit: enforcedBusinessUnit,
         paymentMethod: paymentMethod || undefined,
         accountId: accountId || null,
         description,

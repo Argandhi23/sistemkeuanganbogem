@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { BigButton } from '@/components/ui/BigButton';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { getClientAccountsCache, setClientAccountsCache } from '@/lib/client-cache';
 import {
   IncomeStatementResult,
   GeneralLedgerResult,
@@ -52,6 +53,16 @@ export default function LaporanPage() {
     }
   }, [isCatering, selectedUnit]);
 
+  useEffect(() => {
+    if (!isCatering && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const unitParam = params.get('businessUnit');
+      if (unitParam && ['CATERING', 'RENTAL_MOLEN', 'WIFI_DESA', 'PPOB', 'KETAHANAN_PANGAN', 'UMUM', 'ALL'].includes(unitParam)) {
+        setSelectedUnit(unitParam);
+      }
+    }
+  }, [isCatering]);
+
   // Master Accounts for General Ledger
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
@@ -89,12 +100,21 @@ export default function LaporanPage() {
   }, [periodType, selectedMonth, selectedYear]);
 
   useEffect(() => {
+    const cached = getClientAccountsCache();
+    if (cached && cached.length > 0) {
+      setAccounts(cached);
+      const kasAcc = cached.find((a: AccountOption) => a.code === '1001') || cached[0];
+      setSelectedAccountId((prev) => (prev ? prev : kasAcc.id));
+      return;
+    }
+
     fetch('/api/accounts')
       .then((res) => res.json())
       .then((json) => {
         const list = json.data || [];
         setAccounts(list);
         if (list.length > 0) {
+          setClientAccountsCache(list);
           // Default ke Kas Tunai (1001) jika ada, agar buku kas umum langsung tampil
           const kasAcc = list.find((a: AccountOption) => a.code === '1001') || list[0];
           setSelectedAccountId((prev) => (prev ? prev : kasAcc.id));

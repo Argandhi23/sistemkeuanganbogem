@@ -6,6 +6,11 @@ export default withAuth(
     const token = req.nextauth.token;
     const { pathname } = req.nextUrl;
 
+    // Izinkan endpoint health check / keep-alive tanpa otentikasi
+    if (pathname.startsWith('/api/health')) {
+      return NextResponse.next();
+    }
+
     // Proteksi khusus rute Admin (Halaman & API)
     const isAdminPageRoute =
       pathname.startsWith('/users') ||
@@ -60,7 +65,8 @@ export default withAuth(
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ token, req }) =>
+        req.nextUrl.pathname.startsWith('/api/health') || !!token,
     },
     pages: {
       signIn: '/login',
@@ -73,9 +79,10 @@ export const config = {
     /*
      * Match all request paths except:
      * - api/auth (NextAuth endpoints)
+     * - api/health (Supabase keep-alive & health check endpoint)
      * - login (auth page)
      * - static files (_next/static, _next/image, favicon.ico, logo.png, fonts)
      */
-    '/((?!api/auth|login|_next/static|_next/image|favicon.ico|logo.png|fonts).*)',
+    '/((?!api/auth|api/health|login|_next/static|_next/image|favicon.ico|logo.png|fonts).*)',
   ],
 };

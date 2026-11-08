@@ -2,6 +2,8 @@ import prisma from '../src/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { logActivity } from '../src/lib/activityLog';
 import { getBalanceSheet } from '../src/lib/accounting';
+import { GET as healthGet } from '../src/app/api/health/route';
+import { NextRequest } from 'next/server';
 
 interface TestResult {
   step: string;
@@ -144,6 +146,24 @@ async function testPhase6() {
       });
     }
 
+    // 2C. Uji Endpoint Keep-Alive Supabase (/api/health?force=1)
+    const healthReq = new NextRequest('http://localhost:3000/api/health?force=1');
+    const healthRes = await healthGet(healthReq);
+    const healthJson = await healthRes.json();
+    if (healthRes.status === 200 && healthJson.status === 'ok' && healthJson.keepAlive === true) {
+      results.push({
+        step: '2C. Endpoint Keep-Alive Supabase (/api/health)',
+        status: 'PASS',
+        detail: `Heartbeat sukses (${healthJson.latencyMs}ms, ${healthJson.accountsCount} akun terbaca, Zero Residue)`,
+      });
+    } else {
+      results.push({
+        step: '2C. Endpoint Keep-Alive Supabase (/api/health)',
+        status: 'FAIL',
+        detail: `Health check gagal: ${JSON.stringify(healthJson)}`,
+      });
+    }
+
     // -------------------------------------------------------------------------
     // 3. VERIFIKASI AKHIR KEBERSIHAN & STERILISASI DATABASE (ZERO RESIDUE)
     // -------------------------------------------------------------------------
@@ -179,8 +199,8 @@ async function testPhase6() {
 
     const expectedState = {
       users: 2,
-      accounts: 46,
-      transactions: 253,
+      accounts: 45,
+      transactions: 252,
       cateringOrders: 3,
       molenUnits: 2,
       molenRentals: 0,

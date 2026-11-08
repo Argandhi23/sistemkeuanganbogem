@@ -107,6 +107,8 @@ export async function DELETE(
 
     await prisma.cateringOrder.delete({ where: { id } });
 
+    invalidateDashboardStatsCache();
+
     await logActivity({
       userId: session.user.id,
       action: 'HAPUS_PESANAN_CATERING',

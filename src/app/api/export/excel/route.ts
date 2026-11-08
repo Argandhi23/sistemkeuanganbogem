@@ -26,6 +26,8 @@ export async function GET(req: NextRequest) {
     const businessUnit = session.user.role === 'CATERING' ? BusinessUnit.CATERING : rawBusinessUnit;
     const month = searchParams.get('month');
     const year = searchParams.get('year');
+    const txType = searchParams.get('txType');
+    const search = searchParams.get('search');
 
     let buffer: Buffer;
     let filename = `BUMDes_Bogem_${exportType}_${new Date().toISOString().split('T')[0]}.xlsx`;
@@ -36,13 +38,26 @@ export async function GET(req: NextRequest) {
         where.businessUnit = businessUnit;
       }
 
-      if (year) {
-        const y = parseInt(year);
-        if (month) {
-          const m = parseInt(month);
+      if (txType === 'PEMASUKAN' || txType === 'PENGELUARAN') {
+        where.type = txType;
+      }
+
+      if (search && search.trim()) {
+        where.OR = [
+          { description: { contains: search.trim(), mode: 'insensitive' } },
+          { category: { contains: search.trim(), mode: 'insensitive' } },
+        ];
+      }
+
+      if (year && year !== 'ALL') {
+        const y = parseInt(year, 10);
+        if (month && month !== 'ALL') {
+          const m = parseInt(month, 10);
+          // Mendukung m berbasis 1..12 (dan fallback aman bila 0 dikirim)
+          const monthIdx = m >= 1 && m <= 12 ? m - 1 : 0;
           where.date = {
-            gte: new Date(y, m - 1, 1),
-            lte: new Date(y, m, 0, 23, 59, 59, 999),
+            gte: new Date(y, monthIdx, 1),
+            lte: new Date(y, monthIdx + 1, 0, 23, 59, 59, 999),
           };
         } else {
           where.date = {

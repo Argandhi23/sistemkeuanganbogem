@@ -122,17 +122,17 @@ export function SuccessFeedback({
       {/* Tombol Aksi Bersih & Minimalis */}
       <div className="pt-2 space-y-2">
         {/* Tombol Tambah Lagi (Primary) */}
-        {onSecondaryClick ? (
+        {onPrimaryClick || onSecondaryClick ? (
           <button
             type="button"
-            onClick={onSecondaryClick}
+            onClick={onPrimaryClick || onSecondaryClick}
             className="w-full h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-subtle"
           >
             <PlusCircle className="w-4 h-4" />
             <span>{primaryActionText}</span>
           </button>
-        ) : secondaryActionHref ? (
-          <Link href={secondaryActionHref} className="w-full block">
+        ) : primaryActionHref ? (
+          <Link href={primaryActionHref} className="w-full block">
             <button
               type="button"
               className="w-full h-10 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-subtle"
@@ -144,8 +144,8 @@ export function SuccessFeedback({
         ) : null}
 
         {/* Tombol Lihat Daftar / Buku Kas (Secondary) */}
-        {primaryActionHref ? (
-          <Link href={primaryActionHref} className="w-full block">
+        {secondaryActionHref || primaryActionHref ? (
+          <Link href={(secondaryActionHref || primaryActionHref)!} className="w-full block">
             <button
               type="button"
               className="w-full h-10 px-4 rounded-xl bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
@@ -154,22 +154,13 @@ export function SuccessFeedback({
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </Link>
-        ) : onPrimaryClick ? (
-          <button
-            type="button"
-            onClick={onPrimaryClick}
-            className="w-full h-10 px-4 rounded-xl bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
-          >
-            <span>{secondaryActionText}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
         ) : (
           <Link href="/transaksi" className="w-full block">
             <button
               type="button"
               className="w-full h-10 px-4 rounded-xl bg-white hover:bg-slate-50 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
             >
-              <span>Buka Buku Kas & Transaksi</span>
+              <span>{secondaryActionText || 'Buka Buku Kas & Transaksi'}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </Link>

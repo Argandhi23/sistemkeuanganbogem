@@ -168,13 +168,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const totalPages = Math.ceil(totalCount / limit);
+
     return NextResponse.json({
       data: transactions,
       pagination: {
         total: totalCount,
         page,
         limit,
-        totalPages: Math.ceil(totalCount / limit),
+        totalPages,
+        hasPrev: page > 1,
+        hasNext: page < totalPages,
       },
       summary: {
         totalIncome,

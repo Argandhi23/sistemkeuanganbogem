@@ -40,7 +40,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const updateData: Prisma.UserUpdateInput = {};
     if (name) updateData.name = name;
-    if (email) updateData.email = email.toLowerCase().trim();
+    if (email) {
+      const normalizedEmail = email.toLowerCase().trim();
+      if (normalizedEmail !== existing.email) {
+        const emailTaken = await prisma.user.findUnique({
+          where: { email: normalizedEmail },
+        });
+        if (emailTaken) {
+          return NextResponse.json(
+            { error: 'Email tersebut sudah terdaftar pada pengguna lain' },
+            { status: 409 }
+          );
+        }
+      }
+      updateData.email = normalizedEmail;
+    }
     if (role) updateData.role = role;
     if (typeof isActive === 'boolean') updateData.isActive = isActive;
     if (password && password.trim() !== '') {
@@ -99,7 +113,13 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       where: { id: params.id },
       include: {
         _count: {
-          select: { transactions: true, orders: true },
+          select: {
+            transactions: true,
+            orders: true,
+            molenRentals: true,
+            ppobTransactions: true,
+            cattleExpenses: true,
+          },
         },
       },
     });
@@ -108,8 +128,15 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       return NextResponse.json({ error: 'Pengguna tidak ditemukan' }, { status: 404 });
     }
 
-    // Jika user sudah punya transaksi / pesanan, nonaktifkan saja untuk menjaga integritas data & audit trail
-    if (existing._count.transactions > 0 || existing._count.orders > 0) {
+    const totalLinkedRecords =
+      existing._count.transactions +
+      existing._count.orders +
+      existing._count.molenRentals +
+      existing._count.ppobTransactions +
+      existing._count.cattleExpenses;
+
+    // Jika user sudah punya riwayat pembukuan / operasional unit, nonaktifkan saja untuk menjaga integritas data & audit trail
+    if (totalLinkedRecords > 0) {
       await prisma.user.update({
         where: { id: params.id },
         data: { isActive: false },
@@ -128,9 +155,11 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
       });
     }
 
-    await prisma.user.delete({
-      where: { id: params.id },
-    });
+    // Bersihkan log aktivitas milik user sebelum menghapus user agar tidak terjadi Foreign Key constraint error
+    await prisma.$transaction([
+      prisma.activityLog.deleteMany({ where: { userId: params.id } }),
+      prisma.user.delete({ where: { id: params.id } }),
+    ]);
 
     await logActivity({
       userId: session.user.id,

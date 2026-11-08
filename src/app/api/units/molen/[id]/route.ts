@@ -31,6 +31,7 @@ export async function PUT(
           notes: body.notes,
         },
       });
+      invalidateDashboardStatsCache();
       return NextResponse.json({ message: 'Data unit berhasil diperbarui', data: updatedUnit });
     }
 
@@ -130,6 +131,7 @@ export async function DELETE(
 
     if (type === 'unit') {
       await prisma.molenUnit.delete({ where: { id } });
+      invalidateDashboardStatsCache();
       return NextResponse.json({ message: 'Unit molen berhasil dihapus' });
     }
 
@@ -146,6 +148,8 @@ export async function DELETE(
         data: { status: 'TERSEDIA' },
       }),
     ]);
+
+    invalidateDashboardStatsCache();
 
     await logActivity({
       userId: session.user.id,

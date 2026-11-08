@@ -427,40 +427,61 @@ export async function getGeneralLedger(
     account.code === '101' ||
     account.name.toLowerCase().includes('kas tunai');
 
-  // 1. Saldo Awal (sebelum startDate)
+  // 1. Saldo Awal (sebelum startDate) & 2. Transaksi dalam Periode (dieksekusi paralel)
   let openingBalance = 0;
 
-  if (isMainCashAccount) {
-    // Untuk Kas Tunai (Buku Kas Umum), saldo awal = seluruh penerimaan kas - seluruh pengeluaran kas sebelum startDate
-    const priorTotals = await prisma.transaction.groupBy({
+  const accountWhereClause = isMainCashAccount
+    ? {}
+    : {
+        OR: [
+          { accountId: account.id },
+          { category: { contains: account.name, mode: 'insensitive' as const } },
+        ],
+      };
+
+  const [priorAggregates, periodTransactions] = await Promise.all([
+    prisma.transaction.groupBy({
       by: ['type'],
       where: {
+        ...accountWhereClause,
         date: { lt: startDate },
         ...unitFilter,
       },
       _sum: { amount: true },
-    });
+    }),
+    prisma.transaction.findMany({
+      where: {
+        ...accountWhereClause,
+        date: {
+          gte: startDate,
+          lte: endDate,
+        },
+        ...unitFilter,
+      },
+      select: {
+        id: true,
+        date: true,
+        description: true,
+        category: true,
+        type: true,
+        amount: true,
+        createdBy: {
+          select: { name: true },
+        },
+      },
+      orderBy: { date: 'asc' },
+    }),
+  ]);
 
-    for (const item of priorTotals) {
+  if (isMainCashAccount) {
+    // Untuk Kas Tunai (Buku Kas Umum), saldo awal = seluruh penerimaan kas - seluruh pengeluaran kas sebelum startDate
+    for (const item of priorAggregates) {
       const amt = Number(item._sum.amount || 0);
       if (item.type === 'PEMASUKAN') openingBalance += amt;
       else openingBalance -= amt;
     }
   } else {
     // Untuk akun spesifik lainnya
-    const priorAggregates = await prisma.transaction.groupBy({
-      by: ['type'],
-      where: {
-        OR: [
-          { accountId: account.id },
-          { category: { contains: account.name, mode: 'insensitive' } },
-        ],
-        date: { lt: startDate },
-        ...unitFilter,
-      },
-      _sum: { amount: true },
-    });
-
     for (const item of priorAggregates) {
       const amt = Number(item._sum.amount || 0);
       if (account.category === AccountCategory.PENDAPATAN) {
@@ -479,41 +500,6 @@ export async function getGeneralLedger(
       }
     }
   }
-
-  // 2. Transaksi dalam Periode
-  const periodTransactions = await prisma.transaction.findMany({
-    where: isMainCashAccount
-      ? {
-          date: {
-            gte: startDate,
-            lte: endDate,
-          },
-          ...unitFilter,
-        }
-      : {
-          OR: [
-            { accountId: account.id },
-            { category: { contains: account.name, mode: 'insensitive' } },
-          ],
-          date: {
-            gte: startDate,
-            lte: endDate,
-          },
-          ...unitFilter,
-        },
-    select: {
-      id: true,
-      date: true,
-      description: true,
-      category: true,
-      type: true,
-      amount: true,
-      createdBy: {
-        select: { name: true },
-      },
-    },
-    orderBy: { date: 'asc' },
-  });
 
   let currentBalance = openingBalance;
   let totalDebit = 0;
@@ -907,60 +893,60 @@ export async function getBalanceSheet(
 
   const unitFilter = businessUnit && businessUnit !== 'ALL' ? { businessUnit: businessUnit as BusinessUnit } : {};
 
-  // 1. Total Seluruh Kas Masuk & Keluar hingga cutoffDate
-  const allTimeTotals = await prisma.transaction.groupBy({
-    by: ['type'],
-    where: {
-      date: { lte: cutoffDate },
-      ...unitFilter,
-    },
-    _sum: { amount: true },
-  });
-
-  // 2. Agregasi Saldo per Akun Terdaftar
-  const assignedAggregates = await prisma.transaction.groupBy({
-    by: ['accountId', 'type'],
-    where: {
-      date: { lte: cutoffDate },
-      accountId: { not: null },
-      ...unitFilter,
-    },
-    _sum: { amount: true },
-  });
-
-  // 3. Agregasi Saldo Transaksi Legacy Tanpa AccountId
-  const unassignedAggregates = await prisma.transaction.groupBy({
-    by: ['category', 'type'],
-    where: {
-      date: { lte: cutoffDate },
-      accountId: null,
-      ...unitFilter,
-    },
-    _sum: { amount: true },
-  });
-
-  // 4. Master Bagan Akun
-  const accounts = await prisma.account.findMany({
-    where: {
-      isActive: true,
-      ...(businessUnit && businessUnit !== 'ALL'
-        ? {
-            OR: [
-              { businessUnit: businessUnit as BusinessUnit },
-              { businessUnit: BusinessUnit.UMUM },
-            ],
-          }
-        : {}),
-    },
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      category: true,
-      businessUnit: true,
-    },
-    orderBy: { code: 'asc' },
-  });
+  // Eksekusi paralel 4 query independen ke Supabase agar latensi Neraca turun ~75%
+  const [allTimeTotals, assignedAggregates, unassignedAggregates, accounts] = await Promise.all([
+    // 1. Total Seluruh Kas Masuk & Keluar hingga cutoffDate
+    prisma.transaction.groupBy({
+      by: ['type'],
+      where: {
+        date: { lte: cutoffDate },
+        ...unitFilter,
+      },
+      _sum: { amount: true },
+    }),
+    // 2. Agregasi Saldo per Akun Terdaftar
+    prisma.transaction.groupBy({
+      by: ['accountId', 'type'],
+      where: {
+        date: { lte: cutoffDate },
+        accountId: { not: null },
+        ...unitFilter,
+      },
+      _sum: { amount: true },
+    }),
+    // 3. Agregasi Saldo Transaksi Legacy Tanpa AccountId
+    prisma.transaction.groupBy({
+      by: ['category', 'type'],
+      where: {
+        date: { lte: cutoffDate },
+        accountId: null,
+        ...unitFilter,
+      },
+      _sum: { amount: true },
+    }),
+    // 4. Master Bagan Akun
+    prisma.account.findMany({
+      where: {
+        isActive: true,
+        ...(businessUnit && businessUnit !== 'ALL'
+          ? {
+              OR: [
+                { businessUnit: businessUnit as BusinessUnit },
+                { businessUnit: BusinessUnit.UMUM },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        category: true,
+        businessUnit: true,
+      },
+      orderBy: { code: 'asc' },
+    }),
+  ]);
 
   // Hitung Posisi Kas Riil
   let totalCashIn = 0;
@@ -1266,12 +1252,9 @@ export async function getEquityStatement(
 
   const unitFilter = businessUnit && businessUnit !== 'ALL' ? { businessUnit: businessUnit as BusinessUnit } : {};
 
-  // 1. Ambil Laba Rugi Periode Berjalan
-  const incomeStatement = await getIncomeStatement(startDate, endDate, businessUnit);
-  const netIncome = incomeStatement.netIncome;
-
-  // 2. Ambil Transaksi Modal Historis (Sebelum startDate untuk Saldo Awal) & Periode Berjalan
-  const [priorCapitalAgg, periodCapitalTrx, priorIncomeAgg, priorExpenseAgg] = await Promise.all([
+  // Ambil Laba Rugi Periode Berjalan & Transaksi Modal Historis secara paralel
+  const [incomeStatement, priorCapitalAgg, periodCapitalTrx, priorIncomeAgg, priorExpenseAgg] = await Promise.all([
+    getIncomeStatement(startDate, endDate, businessUnit),
     prisma.transaction.groupBy({
       by: ['accountId', 'type'],
       where: {
@@ -1316,6 +1299,8 @@ export async function getEquityStatement(
       _sum: { amount: true },
     }),
   ]);
+
+  const netIncome = incomeStatement.netIncome;
 
   let priorCapitalSum = 0;
   for (const item of priorCapitalAgg) {

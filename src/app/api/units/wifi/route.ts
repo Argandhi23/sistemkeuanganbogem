@@ -4,6 +4,7 @@ import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { wifiCustomerSchema, wifiPlanSchema } from '@/lib/validators';
 import { logActivity } from '@/lib/activityLog';
+import { invalidateDashboardStatsCache } from '@/lib/cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -120,37 +121,28 @@ export async function POST(req: NextRequest) {
         include: { plan: true },
       });
 
-      let createdCount = 0;
-      for (const cust of activeCustomers) {
-        // Cek apakah tagihan bulan ini sudah ada
-        const existing = await prisma.wifiBill.findUnique({
-          where: {
-            customerId_month_year: {
-              customerId: cust.id,
-              month,
-              year,
-            },
-          },
-        });
+      const dueDate = new Date(year, month - 1, 20); // Jatuh tempo tanggal 20 setiap bulan
+      const billsToCreate = activeCustomers.map((cust) => ({
+        billNumber: `INV-WF-${year}${String(month).padStart(2, '0')}-${cust.customerNumber}`,
+        customerId: cust.id,
+        month,
+        year,
+        amount: cust.plan.price,
+        dueDate,
+        status: 'BELUM_BAYAR' as const,
+      }));
 
-        if (!existing) {
-          const billNo = `INV-WF-${year}${String(month).padStart(2, '0')}-${cust.customerNumber}`;
-          const dueDate = new Date(year, month - 1, 20); // Jatuh tempo tanggal 20 setiap bulan
+      // Batch insert 1 query (menghindari N+1 query di Vercel Serverless)
+      const createdResult =
+        billsToCreate.length > 0
+          ? await prisma.wifiBill.createMany({
+              data: billsToCreate,
+              skipDuplicates: true,
+            })
+          : { count: 0 };
 
-          await prisma.wifiBill.create({
-            data: {
-              billNumber: billNo,
-              customerId: cust.id,
-              month,
-              year,
-              amount: cust.plan.price,
-              dueDate,
-              status: 'BELUM_BAYAR',
-            },
-          });
-          createdCount++;
-        }
-      }
+      const createdCount = createdResult.count;
+      invalidateDashboardStatsCache();
 
       void logActivity({
         userId: session.user.id,
@@ -220,6 +212,8 @@ export async function POST(req: NextRequest) {
         status: 'BELUM_BAYAR',
       },
     });
+
+    invalidateDashboardStatsCache();
 
     void logActivity({
       userId: session.user.id,

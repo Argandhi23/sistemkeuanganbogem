@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { signIn, getSession } from 'next-auth/react';
 import Image from 'next/image';
 import { Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react';
@@ -12,6 +12,11 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Warm-up koneksi database Supabase di latar belakang saat halaman login dibuka
+  useEffect(() => {
+    fetch('/api/health').catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

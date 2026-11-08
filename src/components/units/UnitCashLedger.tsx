@@ -224,7 +224,13 @@ export default function UnitCashLedger({
         {/* Action Buttons Ringkas & Fungsional */}
         <div className="flex flex-wrap items-center gap-2">
           <a
-            href={`/api/export/excel?type=transaksi&businessUnit=${unit}`}
+            href={`/api/export/excel?type=transaksi&businessUnit=${unit}${
+              selectedYear && selectedYear !== 'ALL' ? `&year=${selectedYear}` : ''
+            }${
+              selectedMonth !== 'ALL'
+                ? `&month=${parseInt(selectedMonth, 10) + 1}`
+                : ''
+            }${search.trim() ? `&search=${encodeURIComponent(search.trim())}` : ''}`}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold shadow-subtle transition-all"
             title={`Download Buku Kas ${title} format Excel`}
           >

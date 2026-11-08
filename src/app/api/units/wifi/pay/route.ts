@@ -73,9 +73,7 @@ export async function POST(req: NextRequest) {
       return [updated];
     });
 
-    if (syncToTransaction) {
-      invalidateDashboardStatsCache();
-    }
+    invalidateDashboardStatsCache();
 
     void logActivity({
       userId: session.user.id,

@@ -154,6 +154,24 @@ async function testMiddleware() {
     });
   }
 
+  // 8. Cron / Uptime Monitor tanpa login akses /api/health (diizinkan -> 200)
+  const req8 = await createAuthRequest('/api/health', 'GET', null);
+  const res8 = await (middleware as any)(req8);
+  const loc8 = res8?.headers.get('location');
+  if (!loc8 && res8?.status === 200) {
+    results.push({
+      step: '8. Akses Publik Endpoint Keep-Alive (/api/health)',
+      status: 'PASS',
+      detail: 'Vercel Cron & Uptime Monitor diizinkan memanggil /api/health tanpa sesi login',
+    });
+  } else {
+    results.push({
+      step: '8. Akses Publik Endpoint Keep-Alive (/api/health)',
+      status: 'FAIL',
+      detail: `Endpoint /api/health terblokir middleware: ${loc8 || res8?.status}`,
+    });
+  }
+
   console.log('\n--- HASIL PENGUJIAN FASE 1.2 (MIDDLEWARE RBAC) ---');
   let allPass = true;
   for (const r of results) {
